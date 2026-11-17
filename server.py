@@ -92,14 +92,14 @@ class VideoStreamingHandler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
 
 def run():
+    global PORT
     server_address = ('', PORT)
     try:
         httpd = HTTPServer(server_address, VideoStreamingHandler)
     except OSError:
         # Fallback to alternate port if 8080 is in use
-        httpd = HTTPServer(('', 8899), VideoStreamingHandler)
-        global PORT
         PORT = 8899
+        httpd = HTTPServer(('', PORT), VideoStreamingHandler)
 
     print(f"==================================================")
     print(f"  QB Player by Naqeeb - Local Streaming Server")

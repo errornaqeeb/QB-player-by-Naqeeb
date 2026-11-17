@@ -1,0 +1,60 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.naqeeb.qbplayer'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.naqeeb.qbplayer"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        viewBinding false
+    }
+
+    // Auto-copy web assets from project root into Android assets before build
+    tasks.register('copyWebAssets', Copy) {
+        from project(':').projectDir.parentFile
+        into "${projectDir}/src/main/assets"
+        include 'index.html', 'manifest.json', 'service-worker.js'
+        include 'css/**'
+        include 'js/**'
+        include 'assets/**'
+    }
+
+    afterEvaluate {
+        preBuild.dependsOn(copyWebAssets)
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.webkit:webkit:1.10.0'
+    implementation 'androidx.activity:activity:1.8.2'
+    implementation 'androidx.core:core:1.12.0'
+}

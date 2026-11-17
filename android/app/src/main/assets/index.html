@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0066ff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>QB Player by Naqeeb - The Ad-Free Media Player</title>
+  
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div id="player-container">
+    <!-- Brightness Filter Overlay (MX Player Gesture) -->
+    <div id="brightness-overlay"></div>
+
+    <!-- Video Element -->
+    <video id="video-element" playsinline preload="metadata"></video>
+
+    <!-- Subtitles Overlay -->
+    <div id="subtitles-container">
+      <span id="subtitles-text"></span>
+    </div>
+
+    <!-- OSD Overlays (Gestures) -->
+    <!-- Volume OSD (Right swipe) -->
+    <div id="osd-volume" class="osd-panel">
+      <div class="osd-icon">🔊</div>
+      <div class="osd-vertical-track">
+        <div class="osd-vertical-fill"></div>
+      </div>
+      <div class="osd-text">100%</div>
+    </div>
+
+    <!-- Brightness OSD (Left swipe) -->
+    <div id="osd-brightness" class="osd-panel">
+      <div class="osd-icon">☀️</div>
+      <div class="osd-vertical-track">
+        <div class="osd-vertical-fill"></div>
+      </div>
+      <div class="osd-text">100%</div>
+    </div>
+
+    <!-- Seek OSD (Horizontal swipe) -->
+    <div id="osd-seek" class="osd-panel">
+      <div class="seek-delta-text">+00:10</div>
+      <div class="seek-target-time">[00:00 / 00:00]</div>
+      <div class="seek-preview-bar">
+        <div class="seek-preview-fill"></div>
+      </div>
+    </div>
+
+    <!-- Double-Tap Ripples -->
+    <div id="ripple-left" class="double-tap-ripple">
+      <div class="ripple-content">
+        <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+        <span>10s</span>
+      </div>
+    </div>
+
+    <div id="ripple-right" class="double-tap-ripple">
+      <div class="ripple-content">
+        <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+        <span>10s</span>
+      </div>
+    </div>
+
+    <!-- Play/Pause Central Flash Icon -->
+    <div id="flash-play-pause"></div>
+
+    <!-- Lock Screen Overlay (Kid Lock) -->
+    <div id="lock-screen-overlay">
+      <button id="btn-unlock" class="btn-unlock" title="Unlock Screen">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+      </button>
+    </div>
+
+    <!-- Resume Playback Toast ("Play Where Left") -->
+    <div id="resume-toast">
+      <div class="resume-info">
+        <span class="resume-title">Resume where you left off?</span>
+        <span id="resume-time-str" class="resume-timestamp">00:00</span>
+      </div>
+      <div class="resume-actions">
+        <button id="btn-confirm-resume" class="btn-resume">Resume</button>
+        <button id="btn-cancel-resume" class="btn-restart">Start Over</button>
+      </div>
+    </div>
+
+    <!-- Player Controls Overlay (Top & Bottom) -->
+    <div id="player-controls">
+      <!-- Top Navigation Bar -->
+      <div class="top-bar">
+        <div class="top-bar-left">
+          <button id="btn-back" class="ctrl-btn" title="Back">
+            <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          </button>
+          <div class="video-title-container">
+            <span id="topbar-video-title" class="video-title">QB Player</span>
+            <span id="topbar-video-meta" class="video-meta">Ad-Free Playback</span>
+          </div>
+        </div>
+
+        <div class="top-bar-right">
+          <button id="btn-audio" class="ctrl-btn" title="Audio & Tracks">
+            <svg viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/></svg>
+          </button>
+          <button id="btn-subtitles" class="ctrl-btn" title="Subtitles & Sync">
+            <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
+          </button>
+          <button id="btn-aspect" class="ctrl-btn" title="Aspect Ratio">
+            <svg viewBox="0 0 24 24"><path d="M19 12h-2v3h-3v2h5v-5zM7 9h3V7H5v5h2V9zm14-6H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/></svg>
+          </button>
+          <button id="btn-lock" class="ctrl-btn" title="Lock Screen">
+            <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+          </button>
+          <button id="btn-playlist" class="ctrl-btn" title="Playlist & History">
+            <svg viewBox="0 0 24 24"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3-5-3z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Bottom Control Bar -->
+      <div class="bottom-bar">
+        <!-- Seekbar -->
+        <div id="seekbar-container" class="seekbar-container">
+          <div class="seekbar-track">
+            <div id="seekbar-buffer" class="seekbar-buffer"></div>
+            <div id="seekbar-progress" class="seekbar-progress"></div>
+            <div id="seekbar-handle" class="seekbar-handle"></div>
+          </div>
+          <div id="seekbar-tooltip" class="seekbar-tooltip">00:00</div>
+        </div>
+
+        <!-- Controls Row -->
+        <div class="bottom-controls-row">
+          <div class="ctrl-group-left">
+            <button id="btn-prev" class="ctrl-btn" title="Previous Video">
+              <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            </button>
+            <button id="btn-rewind-10" class="ctrl-btn" title="Rewind 10s">
+              <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+            </button>
+            <button id="btn-play-pause" class="ctrl-btn btn-play-pause" title="Play/Pause">
+              <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button id="btn-forward-10" class="ctrl-btn" title="Forward 10s">
+              <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+            </button>
+            <button id="btn-next" class="ctrl-btn" title="Next Video">
+              <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+            
+            <div class="time-display">
+              <span id="current-time" class="current-time">00:00</span> / <span id="total-duration">00:00</span>
+            </div>
+          </div>
+
+          <div class="ctrl-group-right">
+            <!-- Volume slider -->
+            <div class="volume-ctrl-wrap">
+              <button id="btn-mute" class="ctrl-btn" title="Mute/Unmute">
+                <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+              </button>
+              <input id="volume-slider" class="volume-slider" type="range" min="0" max="100" value="100" />
+            </div>
+
+            <!-- Playback Speed -->
+            <button id="btn-speed" class="ctrl-btn" title="Playback Speed">
+              <span class="speed-badge">1.0x</span>
+            </button>
+
+            <!-- PiP -->
+            <button id="btn-pip" class="ctrl-btn" title="Picture in Picture">
+              <svg viewBox="0 0 24 24"><path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/></svg>
+            </button>
+
+            <!-- Fullscreen -->
+            <button id="btn-fullscreen" class="ctrl-btn" title="Fullscreen">
+              <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty / Welcome Landing Screen -->
+    <div id="welcome-screen">
+      <img src="assets/logo.svg" alt="QB Player Logo" class="welcome-logo-badge" />
+      <h1 class="welcome-title">QB Player</h1>
+      <div class="badge-no-ads">
+        <span>🛡️</span> 100% Ad-Free • Never Interrupted • By Naqeeb
+      </div>
+      <p class="welcome-subtitle">
+        The ultimate ad-free media player. Full MX gestures, subtitle synchronization, 200% HW+ audio boost, dual audio selection, and smart resume.
+      </p>
+
+      <div class="welcome-actions">
+        <button id="btn-welcome-open-file" class="btn-primary">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          Open Video File(s)
+        </button>
+        <button id="btn-welcome-open-folder" class="btn-secondary">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+          Open Folder
+        </button>
+        <button id="btn-welcome-open-url" class="btn-secondary">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+          Stream URL
+        </button>
+      </div>
+
+      <div class="welcome-features">
+        <div class="feature-pill">
+          <span>⚡</span>
+          <strong>Instant Resume</strong>
+          Plays where you left
+        </div>
+        <div class="feature-pill">
+          <span>🔊</span>
+          <strong>Dual Audio</strong>
+          200% Audio Boost & EQ
+        </div>
+        <div class="feature-pill">
+          <span>💬</span>
+          <strong>Subtitles Sync</strong>
+          SRT/VTT sync & styling
+        </div>
+        <div class="feature-pill">
+          <span>👆</span>
+          <strong>MX Gestures</strong>
+          Swipe volume, light & seek
+        </div>
+      </div>
+    </div>
+
+    <!-- Playlist & History Drawer -->
+    <div id="playlist-drawer">
+      <div class="drawer-header">
+        <h3>Playlist & History</h3>
+        <button id="btn-close-playlist" class="modal-close">&times;</button>
+      </div>
+      <div id="drawer-playlist-items" class="drawer-list"></div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Modal: Audio & Tracks -->
+    <div id="modal-audio" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>
+            <svg viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/></svg>
+            Audio & Dual Tracks
+          </h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-row">
+            <div class="setting-label">Audio Tracks (Dual Audio)</div>
+            <div id="audio-track-list" class="track-list"></div>
+            <button id="btn-load-ext-audio" class="btn-secondary" style="margin-top: 8px; justify-content: center; padding: 10px;">
+              + Load External Audio Dub (MP3/AAC)
+            </button>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>HW+ Audio Booster</span>
+              <span id="audio-boost-val" class="setting-val-display">100%</span>
+            </div>
+            <input id="audio-boost-slider" class="setting-slider" type="range" min="100" max="200" value="100" />
+            <small style="color: var(--text-muted); font-size: 0.75rem;">Boosts quiet audio up to 200% with built-in limiter to prevent clipping.</small>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Equalizer Preset</div>
+            <div class="chip-group">
+              <div class="chip-option eq-preset-chip selected" data-preset="normal">Flat</div>
+              <div class="chip-option eq-preset-chip" data-preset="bass">Bass Boost</div>
+              <div class="chip-option eq-preset-chip" data-preset="vocal">Clear Voice</div>
+              <div class="chip-option eq-preset-chip" data-preset="treble">Treble</div>
+              <div class="chip-option eq-preset-chip" data-preset="movie">Cinematic</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Subtitles & Sync -->
+    <div id="modal-subtitles" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>
+            <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
+            Subtitles & Sync
+          </h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-row">
+            <div class="setting-label">Active Subtitles</div>
+            <div id="sub-track-list" class="track-list"></div>
+            <button id="btn-load-sub-file" class="btn-secondary" style="margin-top: 8px; justify-content: center; padding: 10px;">
+              + Load Subtitle File (.srt, .vtt, .ass)
+            </button>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Subtitle Sync Offset (Delay)</span>
+              <span id="sub-sync-val" class="setting-val-display">+0.00s</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button id="btn-sub-sync-minus" class="btn-secondary" style="padding: 6px 12px;">-0.1s</button>
+              <input id="sub-sync-slider" class="setting-slider" type="range" min="-10" max="10" step="0.05" value="0" />
+              <button id="btn-sub-sync-plus" class="btn-secondary" style="padding: 6px 12px;">+0.1s</button>
+            </div>
+            <small style="color: var(--text-muted); font-size: 0.75rem;">Adjust delay if subtitles appear earlier or later than voice.</small>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Subtitle Font Size</span>
+              <span id="sub-size-val" class="setting-val-display">26px</span>
+            </div>
+            <input id="sub-size-slider" class="setting-slider" type="range" min="16" max="48" step="1" value="26" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Playback Speed -->
+    <div id="modal-speed" class="modal-backdrop">
+      <div class="modal-card" style="max-width: 360px;">
+        <div class="modal-header">
+          <h3>Playback Speed</h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body" style="gap: 10px;">
+          <div class="chip-group" style="justify-content: center;">
+            <div class="chip-option speed-option" data-speed="0.25">0.25x</div>
+            <div class="chip-option speed-option" data-speed="0.5">0.5x</div>
+            <div class="chip-option speed-option" data-speed="0.75">0.75x</div>
+            <div class="chip-option speed-option selected" data-speed="1.0">1.0x (Normal)</div>
+            <div class="chip-option speed-option" data-speed="1.25">1.25x</div>
+            <div class="chip-option speed-option" data-speed="1.5">1.5x</div>
+            <div class="chip-option speed-option" data-speed="1.75">1.75x</div>
+            <div class="chip-option speed-option" data-speed="2.0">2.0x</div>
+            <div class="chip-option speed-option" data-speed="3.0">3.0x</div>
+            <div class="chip-option speed-option" data-speed="4.0">4.0x</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Stream URL -->
+    <div id="modal-url" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Stream Video from URL</h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-row">
+            <div class="setting-label">Video Stream URL (MP4, WebM, HLS)</div>
+            <input id="input-stream-url" type="url" placeholder="https://example.com/video.mp4" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px; color: #fff; font-size: 0.95rem; outline: none;" />
+          </div>
+          <button id="btn-confirm-url" class="btn-primary" style="justify-content: center;">
+            Start Playback
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Keyboard Shortcuts -->
+    <div id="modal-shortcuts" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Keyboard Shortcuts</h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="shortcut-grid">
+            <div class="shortcut-item"><span>Play / Pause</span> <kbd>Space</kbd></div>
+            <div class="shortcut-item"><span>Seek 5s Forward</span> <kbd>→</kbd></div>
+            <div class="shortcut-item"><span>Seek 5s Backward</span> <kbd>←</kbd></div>
+            <div class="shortcut-item"><span>Seek 15s</span> <kbd>Shift + ←/→</kbd></div>
+            <div class="shortcut-item"><span>Volume Up/Down</span> <kbd>↑ / ↓</kbd></div>
+            <div class="shortcut-item"><span>Mute Audio</span> <kbd>M</kbd></div>
+            <div class="shortcut-item"><span>Toggle Fullscreen</span> <kbd>F</kbd></div>
+            <div class="shortcut-item"><span>Toggle Subtitles</span> <kbd>S</kbd></div>
+            <div class="shortcut-item"><span>Aspect Ratio</span> <kbd>C</kbd></div>
+            <div class="shortcut-item"><span>Touch Lock</span> <kbd>L</kbd></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden File Inputs -->
+    <input type="file" id="input-video-file" accept="video/*,.mkv,.avi,.mp4,.webm,.mov,.ts" multiple style="display: none;" />
+    <input type="file" id="input-folder" webkitdirectory directory multiple style="display: none;" />
+    <input type="file" id="input-sub-file" accept=".srt,.vtt,.ass,.ssa" style="display: none;" />
+    <input type="file" id="input-audio-file" accept="audio/*,.mp3,.aac,.m4a,.wav" style="display: none;" />
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/storage.js"></script>
+  <script src="js/subtitles.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/gestures.js"></script>
+  <script src="js/playlist.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1178,3 +1178,44 @@ kbd {
   .ctrl-btn { width: 36px; height: 36px; }
   .ctrl-btn svg { width: 18px; height: 18px; }
 }
+
+/* Enhancements for Tablets & Large Screens (e.g. Oppo Pad, Foldables) */
+@media (min-width: 768px) {
+  :root {
+    --topbar-height: 64px;
+    --bottombar-height: 96px;
+  }
+  .ctrl-btn {
+    width: 48px;
+    height: 48px;
+  }
+  .ctrl-btn svg {
+    width: 26px;
+    height: 26px;
+  }
+  .btn-play-pause {
+    width: 56px;
+    height: 56px;
+  }
+  .btn-play-pause svg {
+    width: 30px;
+    height: 30px;
+  }
+  .seekbar-track {
+    height: 7px;
+  }
+  .seekbar-container:hover .seekbar-track {
+    height: 10px;
+  }
+  .seekbar-handle {
+    width: 18px;
+    height: 18px;
+  }
+  .welcome-title {
+    font-size: 3rem;
+  }
+  #subtitles-text {
+    font-size: 32px;
+  }
+}
+

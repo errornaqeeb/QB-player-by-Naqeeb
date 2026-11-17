@@ -1,0 +1,13 @@
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+*.tmp
+
+# Node / package manager (if converted to Electron / Capacitor)
+node_modules/
+dist/
+.cache/

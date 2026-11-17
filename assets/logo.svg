@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="qbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D2FF" />
+      <stop offset="50%" stop-color="#0066FF" />
+      <stop offset="100%" stop-color="#6B00FF" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#0066ff" stop-opacity="0.2" />
+    </linearGradient>
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Rounded App Background -->
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="#0B0F19" />
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="none" stroke="url(#qbGrad)" stroke-width="6" opacity="0.6" />
+  
+  <!-- QB Hex / Shield Glow -->
+  <circle cx="256" cy="256" r="160" fill="url(#glowGrad)" filter="url(#neonGlow)" opacity="0.35" />
+  
+  <!-- Outer Play Ring -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#qbGrad)" stroke-width="12" stroke-dasharray="720 200" stroke-linecap="round" />
+  
+  <!-- MX-style Play Triangle with QB monogram stylization -->
+  <path d="M 215 170 L 345 256 L 215 342 Z" fill="url(#qbGrad)" filter="url(#neonGlow)" />
+  <path d="M 215 170 L 345 256 L 215 342 Z" fill="#FFFFFF" opacity="0.9" />
+
+  <!-- "QB" Badge -->
+  <rect x="180" y="375" width="152" height="48" rx="24" fill="#0066FF" />
+  <text x="256" y="408" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="26" fill="#FFFFFF" text-anchor="middle" letter-spacing="3">QB PLAYER</text>
+</svg>

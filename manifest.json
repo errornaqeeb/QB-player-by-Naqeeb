@@ -1,0 +1,19 @@
+{
+  "name": "QB Player by Naqeeb",
+  "short_name": "QB Player",
+  "description": "Premium Ad-Free Media Player with Subtitles Sync, Dual Audio, and MX Gestures",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#080c16",
+  "theme_color": "#0066ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "assets/logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["video", "entertainment", "multimedia"]
+}

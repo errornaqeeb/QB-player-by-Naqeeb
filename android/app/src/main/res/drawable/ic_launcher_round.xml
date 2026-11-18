@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Background Dark Circle -->
+    <path
+        android:fillColor="#070A12"
+        android:pathData="M54,4 C26.39,4 4,26.39 4,54 C4,81.61 26.39,104 54,104 C81.61,104 104,81.61 104,54 C104,26.39 81.61,4 54,4 Z" />
+    
+    <!-- Outer Cyan Ring -->
+    <path
+        android:strokeColor="#00D2FF"
+        android:strokeWidth="3.5"
+        android:fillColor="#00000000"
+        android:pathData="M54,16 C33.01,16 16,33.01 16,54 C16,74.99 33.01,92 54,92 C74.99,92 92,74.99 92,54 C92,33.01 74.99,16 54,16 Z" />
+    
+    <!-- Inner Blue Ring -->
+    <path
+        android:strokeColor="#0070F3"
+        android:strokeWidth="2.5"
+        android:fillColor="#00000000"
+        android:pathData="M54,24 C37.43,24 24,37.43 24,54 C24,70.57 37.43,84 54,84 C70.57,84 84,70.57 84,54 C84,37.43 70.57,24 54,24 Z" />
+    
+    <!-- Central Play Triangle (MX Style) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,36 L72,54 L44,72 Z" />
+</vector>

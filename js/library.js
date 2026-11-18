@@ -306,6 +306,9 @@ const MediaBrowser = (function() {
    */
   function returnToBrowser() {
     PlayerCore.pause();
+    if (window.AndroidBridge && window.AndroidBridge.setOrientation) {
+      window.AndroidBridge.setOrientation('sensor');
+    }
     if (browserEl) browserEl.classList.remove('hidden');
     loadFolders();
   }
@@ -384,3 +387,5 @@ const MediaBrowser = (function() {
     handleBack
   };
 })();
+
+window.MediaBrowser = MediaBrowser;

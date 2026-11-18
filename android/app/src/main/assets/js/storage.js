@@ -141,3 +141,5 @@ const StorageManager = (function() {
     saveSettings
   };
 })();
+
+window.StorageManager = StorageManager;

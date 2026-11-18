@@ -443,3 +443,5 @@ const PlayerCore = (function() {
     getCurrentVideoFile
   };
 })();
+
+window.PlayerCore = PlayerCore;

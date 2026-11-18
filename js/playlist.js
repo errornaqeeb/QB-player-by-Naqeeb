@@ -282,3 +282,5 @@ const PlaylistManager = (function() {
     getCurrentIndex
   };
 })();
+
+window.PlaylistManager = PlaylistManager;

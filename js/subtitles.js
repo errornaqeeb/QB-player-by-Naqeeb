@@ -357,3 +357,5 @@ const SubtitlesManager = (function() {
     styleConfig
   };
 })();
+
+window.SubtitlesManager = SubtitlesManager;

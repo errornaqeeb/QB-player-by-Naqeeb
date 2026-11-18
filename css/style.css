@@ -831,6 +831,12 @@ html, body {
 
 #player-controls.visible {
   opacity: 1;
+  pointer-events: none;
+}
+
+#player-controls.visible .top-bar,
+#player-controls.visible .bottom-bar,
+#player-controls.visible .center-play-container {
   pointer-events: auto;
 }
 

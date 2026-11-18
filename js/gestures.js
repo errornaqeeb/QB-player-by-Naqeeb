@@ -73,7 +73,7 @@ const GesturesManager = (function() {
     if (isLocked) return;
 
     // Ignore gestures if touching any controls, buttons, sliders, modals, or media browser
-    if (e.target.closest('#player-controls, .modal-card, #playlist-drawer, #resume-toast, #media-browser, .ctrl-btn, .btn-center-play')) {
+    if (e.target.closest('.top-bar, .bottom-bar, .center-play-container, .modal-card, #playlist-drawer, #resume-toast, #media-browser, .ctrl-btn, .btn-center-play, #btn-unlock')) {
       return;
     }
 
@@ -159,7 +159,7 @@ const GesturesManager = (function() {
     }
 
     // If user tapped on controls, buttons, sliders, modals, or browser, DO NOT process as screen gesture/tap!
-    if (e.target.closest('#player-controls, .modal-card, #playlist-drawer, #resume-toast, #media-browser, .ctrl-btn, .btn-center-play')) {
+    if (e.target.closest('.top-bar, .bottom-bar, .center-play-container, .modal-card, #playlist-drawer, #resume-toast, #media-browser, .ctrl-btn, .btn-center-play, #btn-unlock')) {
       startX = 0;
       startY = 0;
       return;
@@ -210,17 +210,22 @@ const GesturesManager = (function() {
   }
 
   /**
-   * Single Tap on Video Screen:
-   * 1. If controls are hidden: Show controls!
-   * 2. If controls are already showing: Pause/Play video right there (MX Player style!)
+   * Single Tap on Video Screen (MX Player style):
+   * 1. If video is playing: Pause video immediately and display all options indefinitely.
+   * 2. If video is paused: Resume playback and show controls temporarily.
    */
   function handleSingleTap() {
-    const controls = document.getElementById('player-controls');
-    if (!controls) return;
-    if (!controls.classList.contains('visible')) {
+    const vid = document.getElementById('video-element');
+    if (!vid) return;
+
+    if (!vid.paused) {
+      // MX Player touch-to-pause: tapping pauses the video and shows all options
+      PlayerCore.pause();
       window.dispatchEvent(new CustomEvent('qb:show-controls'));
     } else {
-      PlayerCore.togglePlay();
+      // Tapping while paused resumes video playback
+      PlayerCore.play();
+      window.dispatchEvent(new CustomEvent('qb:show-controls'));
     }
   }
 
@@ -388,3 +393,5 @@ const GesturesManager = (function() {
     getIsLocked
   };
 })();
+
+window.GesturesManager = GesturesManager;

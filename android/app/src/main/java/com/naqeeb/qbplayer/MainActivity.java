@@ -4,11 +4,13 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.PictureInPictureParams;
 import android.content.ContentUris;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.database.Cursor;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -49,6 +51,7 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -77,6 +80,9 @@ public class MainActivity extends AppCompatActivity {
 
         // Keep screen on during video playback
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        // Route hardware volume buttons to media stream
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
 
         // Immersive sticky fullscreen
         hideSystemUI();
@@ -571,6 +577,33 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
+        @JavascriptInterface
+        public void setVolume(float volume) {
+            runOnUiThread(() -> {
+                try {
+                    AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (am != null) {
+                        int maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                        int targetVol = Math.round(Math.max(0f, Math.min(1.0f, volume)) * maxVol);
+                        am.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0);
+                    }
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
+        public float getVolume() {
+            try {
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                if (am != null) {
+                    int maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                    int currentVol = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+                    return (float) currentVol / (float) maxVol;
+                }
+            } catch (Exception ignored) {}
+            return 1.0f;
+        }
+
         private String formatDuration(long millis) {
             long totalSeconds = millis / 1000;
             long hours = totalSeconds / 3600;
@@ -638,6 +671,7 @@ public class MainActivity extends AppCompatActivity {
 
         private void handleClient(Socket socket) {
             new Thread(() -> {
+                ParcelFileDescriptor pfd = null;
                 try {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                     String line = reader.readLine();
@@ -652,6 +686,7 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
+                    String method = requestParts[0];
                     String path = requestParts[1];
                     String rangeHeader = null;
 
@@ -659,6 +694,20 @@ public class MainActivity extends AppCompatActivity {
                         if (line.toLowerCase(Locale.US).startsWith("range:")) {
                             rangeHeader = line.substring(6).trim();
                         }
+                    }
+
+                    // Handle CORS Preflight OPTIONS
+                    if ("OPTIONS".equalsIgnoreCase(method)) {
+                        OutputStream out = socket.getOutputStream();
+                        out.write(("HTTP/1.1 204 No Content\r\n"
+                                + "Access-Control-Allow-Origin: *\r\n"
+                                + "Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n"
+                                + "Access-Control-Allow-Headers: Range, Content-Type, Accept-Ranges\r\n"
+                                + "Access-Control-Max-Age: 86400\r\n"
+                                + "Connection: close\r\n\r\n").getBytes());
+                        out.flush();
+                        socket.close();
+                        return;
                     }
 
                     // Extract media id: /media?id=12345
@@ -674,20 +723,25 @@ public class MainActivity extends AppCompatActivity {
 
                     if (mediaId == -1) {
                         OutputStream out = socket.getOutputStream();
-                        out.write("HTTP/1.1 404 Not Found\r\n\r\n".getBytes());
+                        out.write("HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\n\r\n".getBytes());
                         out.flush();
                         socket.close();
                         return;
                     }
 
                     Uri contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
-                    ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(contentUri, "r");
+                    pfd = getContentResolver().openFileDescriptor(contentUri, "r");
                     if (pfd == null) {
                         OutputStream out = socket.getOutputStream();
-                        out.write("HTTP/1.1 404 Not Found\r\n\r\n".getBytes());
+                        out.write("HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\n\r\n".getBytes());
                         out.flush();
                         socket.close();
                         return;
+                    }
+
+                    String mimeType = getContentResolver().getType(contentUri);
+                    if (mimeType == null || mimeType.isEmpty()) {
+                        mimeType = "video/mp4";
                     }
 
                     long fileLength = pfd.getStatSize();
@@ -708,7 +762,7 @@ public class MainActivity extends AppCompatActivity {
 
                     if (start >= fileLength) {
                         OutputStream out = socket.getOutputStream();
-                        String response = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + fileLength + "\r\n\r\n";
+                        String response = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + fileLength + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
                         out.write(response.getBytes());
                         out.flush();
                         pfd.close();
@@ -726,32 +780,58 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         header.append("HTTP/1.1 200 OK\r\n");
                     }
-                    header.append("Content-Type: video/mp4\r\n");
+                    header.append("Content-Type: ").append(mimeType).append("\r\n");
                     header.append("Content-Length: ").append(contentLength).append("\r\n");
                     header.append("Accept-Ranges: bytes\r\n");
+                    header.append("Access-Control-Allow-Origin: *\r\n");
+                    header.append("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n");
+                    header.append("Access-Control-Allow-Headers: Range, Content-Type, Accept-Ranges\r\n");
+                    header.append("Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n");
                     header.append("Connection: close\r\n\r\n");
 
                     out.write(header.toString().getBytes());
 
-                    FileInputStream fis = new FileInputStream(pfd.getFileDescriptor());
-                    fis.skip(start);
-
-                    byte[] buffer = new byte[64 * 1024];
-                    long bytesRemaining = contentLength;
-
-                    while (bytesRemaining > 0) {
-                        int toRead = (int) Math.min(buffer.length, bytesRemaining);
-                        int read = fis.read(buffer, 0, toRead);
-                        if (read == -1) break;
-                        out.write(buffer, 0, read);
-                        bytesRemaining -= read;
+                    if ("HEAD".equalsIgnoreCase(method)) {
+                        out.flush();
+                        pfd.close();
+                        socket.close();
+                        return;
                     }
 
-                    out.flush();
-                    fis.close();
+                    try (FileInputStream fis = new FileInputStream(pfd.getFileDescriptor())) {
+                        if (start > 0) {
+                            try {
+                                fis.getChannel().position(start);
+                            } catch (Exception e) {
+                                long skipped = 0;
+                                while (skipped < start) {
+                                    long s = fis.skip(start - skipped);
+                                    if (s <= 0) break;
+                                    skipped += s;
+                                }
+                            }
+                        }
+
+                        byte[] buffer = new byte[64 * 1024];
+                        long bytesRemaining = contentLength;
+
+                        while (bytesRemaining > 0) {
+                            int toRead = (int) Math.min(buffer.length, bytesRemaining);
+                            int read = fis.read(buffer, 0, toRead);
+                            if (read == -1) break;
+                            out.write(buffer, 0, read);
+                            bytesRemaining -= read;
+                        }
+
+                        out.flush();
+                    }
                     pfd.close();
                     socket.close();
                 } catch (Exception ignored) {
+                    try {
+                        if (pfd != null) pfd.close();
+                        if (socket != null && !socket.isClosed()) socket.close();
+                    } catch (Exception ignored2) {}
                 }
             }).start();
         }

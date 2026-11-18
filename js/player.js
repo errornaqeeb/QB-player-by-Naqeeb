@@ -67,7 +67,11 @@ const PlayerCore = (function() {
     if (audioContext || !videoEl) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
       audioContext = new AudioCtx();
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
       audioSource = audioContext.createMediaElementSource(videoEl);
 
       // Create Gain node for volume boost (up to 200%)
@@ -119,13 +123,13 @@ const PlayerCore = (function() {
    */
   async function togglePlay() {
     if (!videoEl) return false;
-    setupWebAudio();
     if (audioContext && audioContext.state === 'suspended') {
-      audioContext.resume();
+      audioContext.resume().catch(() => {});
     }
 
     if (videoEl.paused || videoEl.ended) {
       try {
+        videoEl.muted = false;
         await videoEl.play();
         return true;
       } catch (err) {
@@ -140,8 +144,10 @@ const PlayerCore = (function() {
 
   function play() {
     if (!videoEl) return;
-    setupWebAudio();
-    if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume().catch(() => {});
+    }
+    videoEl.muted = false;
     videoEl.play().catch(() => {});
   }
 
@@ -169,28 +175,45 @@ const PlayerCore = (function() {
    * level: 0.0 to 2.0 (e.g. 1.0 = 100%, 1.5 = 150%, 2.0 = 200%)
    */
   function setVolume(level) {
-    setupWebAudio();
     volumeLevel = Math.max(0, Math.min(2.0, parseFloat(level) || 0));
 
     if (videoEl) {
-      // Normal HTML5 video volume only accepts 0.0 - 1.0
+      // Normal HTML5 video volume directly to hardware DAC
       videoEl.volume = Math.min(1.0, volumeLevel);
       if (volumeLevel > 0) videoEl.muted = false;
-    }
-
-    // Boost beyond 100% is handled through Web Audio GainNode
-    if (gainNode) {
-      gainNode.gain.setValueAtTime(volumeLevel, audioContext ? audioContext.currentTime : 0);
     }
 
     if (externalAudioEl) {
       externalAudioEl.volume = Math.min(1.0, volumeLevel);
     }
 
+    // On Android, sync directly with device media volume for crystal-clear physical audio
+    if (window.AndroidBridge && window.AndroidBridge.setVolume) {
+      window.AndroidBridge.setVolume(Math.min(1.0, volumeLevel));
+    }
+
+    // Only activate Web Audio booster if user explicitly turns on boost (> 100%)
+    if (volumeLevel > 1.0) {
+      setupWebAudio();
+      if (gainNode) {
+        gainNode.gain.setValueAtTime(volumeLevel, audioContext ? audioContext.currentTime : 0);
+      }
+    } else if (gainNode) {
+      gainNode.gain.setValueAtTime(volumeLevel, audioContext ? audioContext.currentTime : 0);
+    }
+
     return volumeLevel;
   }
 
   function getVolume() {
+    if (window.AndroidBridge && window.AndroidBridge.getVolume) {
+      try {
+        const sysVol = window.AndroidBridge.getVolume();
+        if (typeof sysVol === 'number' && !isNaN(sysVol)) {
+          return sysVol;
+        }
+      } catch (e) {}
+    }
     return volumeLevel;
   }
 
@@ -223,9 +246,12 @@ const PlayerCore = (function() {
    */
   function setEqualizerPreset(presetName) {
     const gains = EQ_PRESETS[presetName] || EQ_PRESETS.normal;
-    if (eqFilters && eqFilters.length === gains.length) {
+    if (presetName !== 'normal') {
+      setupWebAudio();
+    }
+    if (eqFilters && eqFilters.length === gains.length && audioContext) {
       eqFilters.forEach((filter, index) => {
-        filter.gain.setValueAtTime(gains[index], audioContext ? audioContext.currentTime : 0);
+        filter.gain.setValueAtTime(gains[index], audioContext.currentTime);
       });
     }
     return presetName;
@@ -401,6 +427,12 @@ const PlayerCore = (function() {
       if (!videoTitle) videoTitle = fileOrUrl.name;
     }
 
+    if (externalAudioEl) {
+      externalAudioEl.src = '';
+    }
+
+    videoEl.muted = false;
+    videoEl.volume = Math.min(1.0, volumeLevel > 0 ? volumeLevel : 1.0);
     videoEl.src = src;
     videoEl.load();
 

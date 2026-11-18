@@ -7,7 +7,12 @@ Desktop.ini
 *.log
 *.tmp
 
-# Node / package manager (if converted to Electron / Capacitor)
+# Android & Build Artifacts
+*.apk
+build-output/
+.gradle/
+build/
+app/build/
 node_modules/
 dist/
 .cache/

@@ -35,20 +35,6 @@ android {
     buildFeatures {
         viewBinding false
     }
-
-    // Auto-copy web assets from project root into Android assets before build
-    tasks.register('copyWebAssets', Copy) {
-        from project(':').projectDir.parentFile
-        into "${projectDir}/src/main/assets"
-        include 'index.html', 'manifest.json', 'service-worker.js'
-        include 'css/**'
-        include 'js/**'
-        include 'assets/**'
-    }
-
-    afterEvaluate {
-        preBuild.dependsOn(copyWebAssets)
-    }
 }
 
 dependencies {

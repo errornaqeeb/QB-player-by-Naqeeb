@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     flashPlayPause
   });
   PlaylistManager.init(document.getElementById('drawer-playlist-items'));
+  MediaBrowser.init();
 
   // Load Saved Settings
   const userSettings = StorageManager.loadSettings();
@@ -110,19 +111,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function hideControls() {
-    if (video.paused) return; // Keep visible while paused
+    if (video.paused) return; // Keep visible indefinitely while paused!
     playerControls.classList.remove('visible');
     container.classList.remove('controls-visible');
   }
 
   function scheduleHideControls() {
     if (controlsTimeout) clearTimeout(controlsTimeout);
+    if (video.paused) return; // Stay visible while paused!
     controlsTimeout = setTimeout(() => {
       hideControls();
-    }, 3200);
+    }, 4500); // 4.5 seconds
   }
 
-  container.addEventListener('mousemove', showControls);
+  // Prevent controls from disappearing when interacting with controls
+  playerControls.addEventListener('pointerdown', (e) => {
+    scheduleHideControls();
+  });
+
+  window.addEventListener('qb:show-controls', showControls);
   window.addEventListener('qb:toggle-controls', () => {
     if (playerControls.classList.contains('visible')) {
       hideControls();
@@ -183,6 +190,13 @@ document.addEventListener('DOMContentLoaded', () => {
       topbarMeta.textContent = `${video.videoWidth}x${video.videoHeight} • Zero Ads`;
     }
 
+    // Auto rotate landscape movies on Android / Oppo Pad
+    if (video.videoWidth && video.videoHeight && video.videoWidth >= video.videoHeight) {
+      if (window.AndroidBridge && window.AndroidBridge.setOrientation) {
+        window.AndroidBridge.setOrientation('landscape');
+      }
+    }
+
     // Check for saved resume position ("Play Where Left")
     checkAndPromptResume();
   });
@@ -192,10 +206,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function updatePlayPauseButton(isPlaying) {
-    if (isPlaying) {
-      btnPlayPause.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
-    } else {
-      btnPlayPause.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    const playSvg = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    const pauseSvg = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+    btnPlayPause.innerHTML = isPlaying ? pauseSvg : playSvg;
+
+    const btnCenter = document.getElementById('btn-center-play');
+    if (btnCenter) {
+      btnCenter.innerHTML = isPlaying ? pauseSvg : playSvg;
     }
   }
 
@@ -336,11 +353,33 @@ document.addEventListener('DOMContentLoaded', () => {
     PlayerCore.toggleFullscreen(container);
   });
 
-  // Back button (returns to welcome landing screen or closes current file)
+  // Back button (returns to MX Player media folders browser)
   btnBack.addEventListener('click', () => {
-    PlayerCore.pause();
-    welcomeScreen.classList.remove('hidden');
+    MediaBrowser.returnToBrowser();
   });
+
+  // Rotation Toggle Button (MX Player Screen Orientation)
+  const btnRotate = document.getElementById('btn-rotate');
+  if (btnRotate) {
+    btnRotate.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (window.AndroidBridge && window.AndroidBridge.toggleOrientation) {
+        window.AndroidBridge.toggleOrientation();
+      } else {
+        showQuickNotification('Screen Rotation');
+      }
+    });
+  }
+
+  // Center Screen Play/Pause Button
+  const btnCenterPlay = document.getElementById('btn-center-play');
+  if (btnCenterPlay) {
+    btnCenterPlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      PlayerCore.togglePlay();
+      scheduleHideControls();
+    });
+  }
 
   // Screen Lock (Kid Lock)
   btnLock.addEventListener('click', () => {

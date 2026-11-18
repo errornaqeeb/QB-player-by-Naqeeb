@@ -39,39 +39,36 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.0-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.1-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.0-Naqeeb.apk
+          path: build-output/QB-Player-v1.1-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.0.0
-          name: "QB Player v1.0.0 by Naqeeb (Ad-Free APK)"
+          tag_name: v1.1.0
+          name: "QB Player v1.1.0 by Naqeeb (Ad-Free APK)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.0.0 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.1.0 (Ad-Free Android APK)
             
-            This is the official Android APK for **Android Mobile Phones** and **Oppo Pad / Tablets**.
+            This release brings full parity with MX Player:
             
-            ### ✨ Included Features:
-            - **Zero Ads**: Completely ad-free pause & unpause experience.
-            - **MX Player Gestures**: Swipe left for Brightness, swipe right for Volume, swipe horizontal to Seek.
-            - **200% Audio Boost**: Web Audio Gain booster with dynamic compressor.
-            - **Subtitles Sync**: Real-time SRT/VTT/ASS sync offset and size customization.
-            - **Dual Audio**: Multiple audio streams & external audio dub loader.
-            - **Play Where Left**: Remembers exact playback position and history.
-            - **Tablet & Oppo Pad Support**: Large screen responsive layout & Picture-in-Picture.
+            ### 🚀 New in v1.1.0:
+            - **MX Player Folders Browser**: Scans device storage and automatically lists video folders (Download, Movies, Camera, WhatsApp, etc.) with video counts, size, and duration! Tap any video to play instantly — no gallery or file picker needed!
+            - **Screen Rotation & Rotation Lock**: Dedicated rotation button + automatic movie landscape mode!
+            - **Fixed Touch & Pause**: Tapping the screen while playing now pauses properly without disappearing controls. Controls stay visible while paused!
+            - **Center Play/Pause Button**: Added large MX Player center button for effortless one-tap pause.
             
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.0-Naqeeb.apk` below directly onto your Android phone or Oppo Pad.
-            2. Tap the downloaded APK to install.
+            1. Download `QB-Player-v1.1-Naqeeb.apk` below onto your Android phone or Oppo Pad.
+            2. Tap the downloaded APK to install/update.
             3. Enjoy full ad-free media playback!
-          files: build-output/QB-Player-v1.0-Naqeeb.apk
+          files: build-output/QB-Player-v1.1-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -72,8 +72,8 @@ const GesturesManager = (function() {
     // If locked, only allow unlock button click
     if (isLocked) return;
 
-    // Ignore gestures if clicking directly on player control buttons, sliders, or modals
-    if (e.target.closest('#player-controls button, #player-controls input, .modal-card, #playlist-drawer, #resume-toast')) {
+    // Ignore gestures if touching any controls, buttons, sliders, modals, or media browser
+    if (e.target.closest('#player-controls, .modal-card, #playlist-drawer, #resume-toast, #media-browser, .ctrl-btn, .btn-center-play')) {
       return;
     }
 
@@ -158,6 +158,13 @@ const GesturesManager = (function() {
       return;
     }
 
+    // If user tapped on controls, buttons, sliders, modals, or browser, DO NOT process as screen gesture/tap!
+    if (e.target.closest('#player-controls, .modal-card, #playlist-drawer, #resume-toast, #media-browser, .ctrl-btn, .btn-center-play')) {
+      startX = 0;
+      startY = 0;
+      return;
+    }
+
     if (isDragging) {
       // If we were seeking, commit the seek target now
       if (gestureType === 'seek') {
@@ -203,10 +210,18 @@ const GesturesManager = (function() {
   }
 
   /**
-   * Single Tap: Toggle control bar visibility
+   * Single Tap on Video Screen:
+   * 1. If controls are hidden: Show controls!
+   * 2. If controls are already showing: Pause/Play video right there (MX Player style!)
    */
   function handleSingleTap() {
-    window.dispatchEvent(new CustomEvent('qb:toggle-controls'));
+    const controls = document.getElementById('player-controls');
+    if (!controls) return;
+    if (!controls.classList.contains('visible')) {
+      window.dispatchEvent(new CustomEvent('qb:show-controls'));
+    } else {
+      PlayerCore.togglePlay();
+    }
   }
 
   /**

@@ -106,6 +106,9 @@
         </div>
 
         <div class="top-bar-right">
+          <button id="btn-rotate" class="ctrl-btn" title="Rotate Screen">
+            <svg viewBox="0 0 24 24"><path d="M7.11 8.53L5.7 7.11C4.8 8.27 4.24 9.61 4.07 11h2.02c.14-.87.49-1.72 1.02-2.47zM6.09 13H4.07c.17 1.39.72 2.73 1.62 3.89l1.41-1.42c-.52-.75-.87-1.6-1.01-2.47zm10.8 4.36l1.41 1.42C19.2 17.62 19.76 16.28 19.93 14.89h-2.02c-.14.87-.49 1.72-1.02 2.47zm1.02-6.36h2.02c-.17-1.39-.72-2.73-1.62-3.89l-1.41 1.42c.52.75.87 1.6 1.01 2.47zM16.48 4.25L15.07 2.84C13.91 1.94 12.57 1.38 11.18 1.21v2.02c.87.14 1.72.49 2.47 1.02zm-4.73 16.54v2.02c1.39-.17 2.73-.72 3.89-1.62l-1.42-1.41c-.75.52-1.6.87-2.47 1.01zM10.25 7.52v8.96l7.08-4.48-7.08-4.48z"/></svg>
+          </button>
           <button id="btn-audio" class="ctrl-btn" title="Audio & Tracks">
             <svg viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/></svg>
           </button>
@@ -122,6 +125,13 @@
             <svg viewBox="0 0 24 24"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3-5-3z"/></svg>
           </button>
         </div>
+      </div>
+
+      <!-- Center Play/Pause Overlay Button in Player -->
+      <div class="center-play-container">
+        <button id="btn-center-play" class="btn-center-play" title="Play/Pause">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
       </div>
 
       <!-- Bottom Control Bar -->
@@ -188,52 +198,70 @@
       </div>
     </div>
 
-    <!-- Empty / Welcome Landing Screen -->
-    <div id="welcome-screen">
-      <img src="assets/logo.svg" alt="QB Player Logo" class="welcome-logo-badge" />
-      <h1 class="welcome-title">QB Player</h1>
-      <div class="badge-no-ads">
-        <span>🛡️</span> 100% Ad-Free • Never Interrupted • By Naqeeb
-      </div>
-      <p class="welcome-subtitle">
-        The ultimate ad-free media player. Full MX gestures, subtitle synchronization, 200% HW+ audio boost, dual audio selection, and smart resume.
-      </p>
-
-      <div class="welcome-actions">
-        <button id="btn-welcome-open-file" class="btn-primary">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          Open Video File(s)
-        </button>
-        <button id="btn-welcome-open-folder" class="btn-secondary">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
-          Open Folder
-        </button>
-        <button id="btn-welcome-open-url" class="btn-secondary">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-          Stream URL
-        </button>
+    <!-- MX Player Native Media Browser & Folders Screen -->
+    <div id="media-browser">
+      <!-- Browser Top Header -->
+      <div class="browser-header">
+        <div class="browser-brand">
+          <img src="assets/logo.svg" alt="QB Player Logo" class="browser-logo" />
+          <div class="browser-title-group">
+            <span class="browser-app-title">QB Player</span>
+            <span class="browser-badge-ads">Zero Ads</span>
+          </div>
+        </div>
+        <div class="browser-header-actions">
+          <button id="btn-browser-refresh" class="ctrl-btn" title="Refresh / Rescan Folders">
+            <svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+          </button>
+          <button id="btn-browser-open-file" class="ctrl-btn" title="Open Video File">
+            <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+        </div>
       </div>
 
-      <div class="welcome-features">
-        <div class="feature-pill">
-          <span>⚡</span>
-          <strong>Instant Resume</strong>
-          Plays where you left
+      <!-- Search Bar -->
+      <div class="browser-search-wrap">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="var(--text-muted)"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input id="browser-search-input" type="text" placeholder="Search folders or videos..." />
+      </div>
+
+      <!-- Navigation Tabs: Folders | All Videos | Recent -->
+      <div class="browser-tabs-bar">
+        <button class="browser-tab active" data-tab="folders">Folders</button>
+        <button class="browser-tab" data-tab="all">All Videos</button>
+        <button class="browser-tab" data-tab="recent">Recent</button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="browser-content-area">
+        <!-- Folders View -->
+        <div id="view-folders-section">
+          <!-- Folder Grid / List -->
+          <div id="view-folders-container">
+            <div id="browser-folders-list" class="folders-grid"></div>
+          </div>
+
+          <!-- Inside Folder Videos List -->
+          <div id="view-folder-videos-container" style="display: none;">
+            <div class="folder-header-bar">
+              <button id="btn-browser-back-folders" class="btn-sub-nav">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                Back to Folders
+              </button>
+              <h4 id="browser-current-folder-title">Folder Videos</h4>
+            </div>
+            <div id="browser-folder-videos-list" class="videos-vertical-list"></div>
+          </div>
         </div>
-        <div class="feature-pill">
-          <span>🔊</span>
-          <strong>Dual Audio</strong>
-          200% Audio Boost & EQ
+
+        <!-- All Videos View -->
+        <div id="view-videos-section" style="display: none;">
+          <div id="browser-all-videos-list" class="videos-vertical-list"></div>
         </div>
-        <div class="feature-pill">
-          <span>💬</span>
-          <strong>Subtitles Sync</strong>
-          SRT/VTT sync & styling
-        </div>
-        <div class="feature-pill">
-          <span>👆</span>
-          <strong>MX Gestures</strong>
-          Swipe volume, light & seek
+
+        <!-- Recent View -->
+        <div id="view-recent-section" style="display: none;">
+          <div id="browser-recent-list" class="videos-vertical-list"></div>
         </div>
       </div>
     </div>
@@ -413,6 +441,7 @@
   <script src="js/player.js"></script>
   <script src="js/gestures.js"></script>
   <script src="js/playlist.js"></script>
+  <script src="js/library.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

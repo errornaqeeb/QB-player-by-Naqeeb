@@ -89,15 +89,3 @@ jobs:
           files: build-output/QB-Player-v1.4-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              - Device folder & video browser (Downloads, Movies, Camera, WhatsApp, etc.).
-              - Screen rotation toggle and auto-landscape orientation.
-              - "Play Where Left" resume playback prompt.
-              - HW+ 200% Audio Boost & Equalizer.
-
-            ### 📲 How to Install:
-            1. Download `QB-Player-v1.3-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
-            2. Open the APK file to update / install.
-            3. Enjoy 100% ad-free video watching!
-          files: build-output/QB-Player-v1.3-Naqeeb.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

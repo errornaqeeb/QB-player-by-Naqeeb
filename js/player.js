@@ -16,6 +16,8 @@ const PlayerCore = (function() {
   let volumeLevel = 1.0; // 0.0 to 2.0 (up to 200% volume boost)
   let currentFileKey = null;
   let currentVideoFile = null;
+  let currentMediaId = null;
+  let activeEmbeddedTrackId = 0; // 0 = primary track in video element
 
   // Equalizer Frequencies: 60Hz, 250Hz, 1kHz, 4kHz, 12kHz
   const EQ_FREQUENCIES = [60, 250, 1000, 4000, 12000];
@@ -49,6 +51,28 @@ const PlayerCore = (function() {
     videoEl.addEventListener('seeking', () => {
       if (externalAudioEl.src) {
         externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+      }
+    });
+
+    videoEl.addEventListener('seeked', () => {
+      if (externalAudioEl.src) {
+        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+        if (!videoEl.paused && externalAudioEl.paused) {
+          externalAudioEl.play().catch(() => {});
+        }
+      }
+    });
+
+    videoEl.addEventListener('waiting', () => {
+      if (externalAudioEl.src && !externalAudioEl.paused) {
+        externalAudioEl.pause();
+      }
+    });
+
+    videoEl.addEventListener('playing', () => {
+      if (externalAudioEl.src && externalAudioEl.paused && !videoEl.paused) {
+        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+        externalAudioEl.play().catch(() => {});
       }
     });
 
@@ -129,7 +153,15 @@ const PlayerCore = (function() {
 
     if (videoEl.paused || videoEl.ended) {
       try {
-        videoEl.muted = false;
+        if (activeEmbeddedTrackId === 0 && (!externalAudioEl || !externalAudioEl.src)) {
+          videoEl.muted = false;
+        } else {
+          videoEl.muted = true;
+          if (externalAudioEl && externalAudioEl.src) {
+            externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+            externalAudioEl.play().catch(() => {});
+          }
+        }
         await videoEl.play();
         return true;
       } catch (err) {
@@ -138,6 +170,9 @@ const PlayerCore = (function() {
       }
     } else {
       videoEl.pause();
+      if (externalAudioEl && externalAudioEl.src && !externalAudioEl.paused) {
+        externalAudioEl.pause();
+      }
       return false;
     }
   }
@@ -147,7 +182,15 @@ const PlayerCore = (function() {
     if (audioContext && audioContext.state === 'suspended') {
       audioContext.resume().catch(() => {});
     }
-    videoEl.muted = false;
+    if (activeEmbeddedTrackId === 0 && (!externalAudioEl || !externalAudioEl.src)) {
+      videoEl.muted = false;
+    } else {
+      videoEl.muted = true;
+      if (externalAudioEl && externalAudioEl.src) {
+        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+        externalAudioEl.play().catch(() => {});
+      }
+    }
     videoEl.play().catch(() => {});
   }
 
@@ -155,18 +198,27 @@ const PlayerCore = (function() {
     if (videoEl && !videoEl.paused) {
       videoEl.pause();
     }
+    if (externalAudioEl && externalAudioEl.src && !externalAudioEl.paused) {
+      externalAudioEl.pause();
+    }
   }
 
   function seek(seconds) {
     if (!videoEl) return;
     const target = Math.max(0, Math.min(seconds, videoEl.duration || 0));
     videoEl.currentTime = target;
+    if (externalAudioEl && externalAudioEl.src) {
+      externalAudioEl.currentTime = Math.max(0, target + externalAudioOffset);
+    }
   }
 
   function seekDelta(deltaSeconds) {
     if (!videoEl) return 0;
     const target = Math.max(0, Math.min(videoEl.currentTime + deltaSeconds, videoEl.duration || 0));
     videoEl.currentTime = target;
+    if (externalAudioEl && externalAudioEl.src) {
+      externalAudioEl.currentTime = Math.max(0, target + externalAudioOffset);
+    }
     return target;
   }
 
@@ -180,7 +232,9 @@ const PlayerCore = (function() {
     if (videoEl) {
       // Normal HTML5 video volume directly to hardware DAC
       videoEl.volume = Math.min(1.0, volumeLevel);
-      if (volumeLevel > 0) videoEl.muted = false;
+      if (volumeLevel > 0 && activeEmbeddedTrackId === 0 && (!externalAudioEl || !externalAudioEl.src)) {
+        videoEl.muted = false;
+      }
     }
 
     if (externalAudioEl) {
@@ -305,6 +359,7 @@ const PlayerCore = (function() {
       if (externalAudioEl) {
         externalAudioEl.pause();
       }
+      activeEmbeddedTrackId = 0;
     } else if (trackId === 'external') {
       if (videoEl) videoEl.muted = true; // mute video, play external track
       if (externalAudioEl && externalAudioEl.src) {
@@ -314,6 +369,46 @@ const PlayerCore = (function() {
     } else if (typeof trackId === 'number' && videoEl && videoEl.audioTracks) {
       for (let i = 0; i < videoEl.audioTracks.length; i++) {
         videoEl.audioTracks[i].enabled = (i === trackId);
+      }
+    }
+  }
+
+  function setCurrentMediaId(id) {
+    currentMediaId = id;
+    activeEmbeddedTrackId = 0;
+  }
+
+  function getCurrentMediaId() {
+    return currentMediaId;
+  }
+
+  function getActiveEmbeddedTrackId() {
+    return activeEmbeddedTrackId;
+  }
+
+  function selectEmbeddedAudioTrack(track) {
+    if (!track) return;
+    if (track.id === 0 || track.extractorIndex === undefined) {
+      if (externalAudioEl) {
+        externalAudioEl.pause();
+        externalAudioEl.src = '';
+      }
+      activeEmbeddedTrackId = 0;
+      videoEl.muted = false;
+    } else {
+      activeEmbeddedTrackId = track.id;
+      if (window.AndroidBridge && window.AndroidBridge.prepareAudioTrack && currentMediaId) {
+        const audioUrl = window.AndroidBridge.prepareAudioTrack(String(currentMediaId), track.extractorIndex);
+        if (audioUrl) {
+          videoEl.muted = true;
+          externalAudioEl.src = audioUrl;
+          externalAudioEl.volume = Math.min(1.0, volumeLevel);
+          externalAudioEl.playbackRate = videoEl.playbackRate;
+          externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+          if (!videoEl.paused) {
+            externalAudioEl.play().catch(e => console.warn('Audio play failed:', e));
+          }
+        }
       }
     }
   }
@@ -428,8 +523,10 @@ const PlayerCore = (function() {
     }
 
     if (externalAudioEl) {
+      externalAudioEl.pause();
       externalAudioEl.src = '';
     }
+    activeEmbeddedTrackId = 0;
 
     videoEl.muted = false;
     videoEl.volume = Math.min(1.0, volumeLevel > 0 ? volumeLevel : 1.0);
@@ -468,6 +565,10 @@ const PlayerCore = (function() {
     setEqualizerPreset,
     getAudioTracks,
     selectAudioTrack,
+    setCurrentMediaId,
+    getCurrentMediaId,
+    getActiveEmbeddedTrackId,
+    selectEmbeddedAudioTrack,
     loadExternalAudioFile,
     setExternalAudioOffset,
     formatTime,

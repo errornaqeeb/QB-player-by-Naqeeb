@@ -260,6 +260,42 @@ const SubtitlesManager = (function() {
     }
   }
 
+  function loadFromText(text, trackName = 'Embedded Subtitle') {
+    if (!text || typeof text !== 'string') return false;
+    try {
+      let parsedCues = [];
+      if (text.includes('-->')) {
+        if (text.startsWith('WEBVTT')) {
+          parsedCues = parseWebVTT(text);
+        } else {
+          parsedCues = parseSRT(text);
+        }
+      } else if (text.includes('[Events]') && text.includes('Format:')) {
+        parsedCues = parseASS(text);
+      } else {
+        parsedCues = parseSRT(text);
+      }
+
+      if (parsedCues.length > 0) {
+        const existingIdx = tracks.findIndex(t => t.name === trackName);
+        if (existingIdx !== -1) {
+          tracks[existingIdx].cues = parsedCues;
+          activeTrackIndex = existingIdx;
+        } else {
+          tracks.push({ name: trackName, cues: parsedCues });
+          activeTrackIndex = tracks.length - 1;
+        }
+        cues = parsedCues;
+        setEnabled(true);
+        console.log(`[SubtitlesManager] Loaded ${parsedCues.length} cues for track "${trackName}"`);
+        return true;
+      }
+    } catch (err) {
+      console.error('[SubtitlesManager] Error loading subtitle text:', err);
+    }
+    return false;
+  }
+
   /**
    * Switch between available subtitle tracks
    */
@@ -339,9 +375,18 @@ const SubtitlesManager = (function() {
     }
   }
 
+  function getActiveTrackIndex() {
+    return activeTrackIndex;
+  }
+
+  function getActiveTrackName() {
+    return (activeTrackIndex >= 0 && tracks[activeTrackIndex]) ? tracks[activeTrackIndex].name : null;
+  }
+
   return {
     init,
     loadFromFile,
+    loadFromText,
     update,
     adjustSyncOffset,
     setSyncOffset,
@@ -353,6 +398,8 @@ const SubtitlesManager = (function() {
     setBackgroundStyle,
     selectTrack,
     getTracks,
+    getActiveTrackIndex,
+    getActiveTrackName,
     clearTracks,
     styleConfig
   };

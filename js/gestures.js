@@ -198,9 +198,10 @@ const GesturesManager = (function() {
       lastTapX = e.clientX;
       lastTapY = e.clientY;
 
+      const currentRelX = relX;
       if (singleTapTimer) clearTimeout(singleTapTimer);
       singleTapTimer = setTimeout(() => {
-        handleSingleTap();
+        handleSingleTap(currentRelX);
         singleTapTimer = null;
       }, DOUBLE_TAP_DELAY_MS);
     }
@@ -211,21 +212,32 @@ const GesturesManager = (function() {
 
   /**
    * Single Tap on Video Screen (MX Player style):
-   * 1. If video is playing: Pause video immediately and display all options indefinitely.
-   * 2. If video is paused: Resume playback and show controls temporarily.
+   * - Center Area (28% to 72% width): Toggle Play / Pause!
+   * - Left & Right Areas (<28% or >72% width): Toggle Show / Hide Options only (no pause/play)
    */
-  function handleSingleTap() {
+  function handleSingleTap(relX) {
     const vid = document.getElementById('video-element');
+    const controls = document.getElementById('player-controls');
     if (!vid) return;
 
-    if (!vid.paused) {
-      // MX Player touch-to-pause: tapping pauses the video and shows all options
-      PlayerCore.pause();
-      window.dispatchEvent(new CustomEvent('qb:show-controls'));
+    const isCenter = relX >= 0.28 && relX <= 0.72;
+
+    if (isCenter) {
+      // Center zone: toggle Play / Pause!
+      if (!vid.paused) {
+        PlayerCore.pause();
+        window.dispatchEvent(new CustomEvent('qb:show-controls'));
+      } else {
+        PlayerCore.play();
+        window.dispatchEvent(new CustomEvent('qb:show-controls'));
+      }
     } else {
-      // Tapping while paused resumes video playback
-      PlayerCore.play();
-      window.dispatchEvent(new CustomEvent('qb:show-controls'));
+      // Left and Right zones: just toggle Show / Hide Options!
+      if (controls && controls.classList.contains('visible')) {
+        window.dispatchEvent(new CustomEvent('qb:hide-controls'));
+      } else {
+        window.dispatchEvent(new CustomEvent('qb:show-controls'));
+      }
     }
   }
 

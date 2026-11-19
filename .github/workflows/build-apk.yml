@@ -39,35 +39,47 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.2-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.3-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.2-Naqeeb.apk
+          path: build-output/QB-Player-v1.3-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.2.0
-          name: "QB Player v1.2.0 by Naqeeb (Ad-Free APK - Audio Fix)"
+          tag_name: v1.3.0
+          name: "QB Player v1.3.0 by Naqeeb (Tap Zones, Dual Audio & Subtitles)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.2.0 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.3.0 (Ad-Free Android APK)
 
-            ### 🔊 Audio Fix & Quality Improvements in v1.2.0:
-            - **Fixed Audio Silence**: Restored direct native hardware audio decoding through Android OS AudioTrack/MediaCodec. All videos now play with full, crystal-clear sound!
-            - **Hardware Volume Sync**: Physical volume rocker buttons and right-side swipe gestures now directly adjust Android `AudioManager.STREAM_MUSIC` system media volume.
-            - **Local Streaming Server Fix**: Added full CORS headers (`Access-Control-Allow-Origin: *`), real MIME type detection per file, exact `FileChannel` positioning, and `OPTIONS`/`HEAD` request handling.
-            - **MX Player Folders Browser**: Automatic scanning of `Download`, `Movies`, `Camera`, `WhatsApp`, etc.
-            - **Screen Rotation & Touch-to-Pause**: Instant pause on screen tap, controls stay visible while paused.
+            ### 🚀 What's New & Fixed in v1.3.0:
+            - **Center Screen Play/Pause & Edge Show/Hide Options**:
+              - Tapping the **center zone** of the screen toggles Play/Pause.
+              - Tapping the **left or right edge zones** only shows/hides playback options without pausing or playing the video.
+            - **Dual & Multi-Audio Track Recognition & Switching**:
+              - Powered by native Android `MediaExtractor` & `MediaMuxer`.
+              - Automatically recognizes all embedded audio tracks (e.g., Hindi, English, 5.1 Surround, Stereo) in dual-audio MKV and MP4 videos.
+              - Switch audio tracks on-the-fly directly from the Audio menu without losing playback sync!
+            - **Embedded & Companion Subtitles Auto-Detection**:
+              - Automatically parses embedded subtitle tracks inside MKV/MP4 containers.
+              - Scans the video folder for companion `.srt`, `.vtt`, and `.ass` subtitle files matching the video name.
+              - Automatically displays the first subtitle track on video start, with track selection and subtitle toggle (Off/On) in the Subtitle menu.
+            - **All Previous MX Player Features Preserved**:
+              - Ad-Free playback guarantee (no pause ads, no banner ads, no popups).
+              - Device folder & video browser (Downloads, Movies, Camera, WhatsApp, etc.).
+              - Screen rotation toggle and auto-landscape orientation.
+              - "Play Where Left" resume playback prompt.
+              - HW+ 200% Audio Boost & Equalizer.
 
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.2-Naqeeb.apk` below onto your Android phone or Oppo Pad.
-            2. Tap the downloaded APK to install/update.
-            3. Enjoy full ad-free media playback with full audio!
-          files: build-output/QB-Player-v1.2-Naqeeb.apk
+            1. Download `QB-Player-v1.3-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
+            2. Open the APK file to update / install.
+            3. Enjoy 100% ad-free video watching!
+          files: build-output/QB-Player-v1.3-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

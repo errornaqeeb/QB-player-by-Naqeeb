@@ -11,6 +11,10 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.media.AudioManager;
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -45,13 +49,16 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -604,6 +611,261 @@ public class MainActivity extends AppCompatActivity {
             return 1.0f;
         }
 
+        @JavascriptInterface
+        public String getAudioTracks(String mediaIdStr) {
+            JSONArray result = new JSONArray();
+            try {
+                long mediaId = Long.parseLong(mediaIdStr);
+                Uri contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+                try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(contentUri, "r")) {
+                    if (pfd != null) {
+                        MediaExtractor extractor = new MediaExtractor();
+                        extractor.setDataSource(pfd.getFileDescriptor());
+                        int trackCount = extractor.getTrackCount();
+                        int audioIndex = 0;
+                        for (int i = 0; i < trackCount; i++) {
+                            MediaFormat format = extractor.getTrackFormat(i);
+                            String mime = format.getString(MediaFormat.KEY_MIME);
+                            if (mime != null && mime.startsWith("audio/")) {
+                                JSONObject trackObj = new JSONObject();
+                                trackObj.put("id", audioIndex);
+                                trackObj.put("extractorIndex", i);
+
+                                String lang = format.containsKey(MediaFormat.KEY_LANGUAGE) ? format.getString(MediaFormat.KEY_LANGUAGE) : "und";
+                                String title = format.containsKey("title") ? format.getString("title") : "";
+                                int channels = format.containsKey(MediaFormat.KEY_CHANNEL_COUNT) ? format.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 2;
+
+                                String displayLang = getLanguageDisplayName(lang);
+                                String label = !title.isEmpty() ? title : (displayLang + (channels > 2 ? " (5.1 Surround)" : " (Stereo)"));
+                                if (label.isEmpty() || label.startsWith("und")) {
+                                    label = "Audio Track " + (audioIndex + 1);
+                                }
+
+                                trackObj.put("name", label);
+                                trackObj.put("language", displayLang);
+                                trackObj.put("channels", channels);
+                                trackObj.put("mime", mime);
+                                trackObj.put("isDefault", audioIndex == 0);
+                                result.put(trackObj);
+                                audioIndex++;
+                            }
+                        }
+                        extractor.release();
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting audio tracks", e);
+            }
+            return result.toString();
+        }
+
+        @JavascriptInterface
+        public String getSubtitleTracks(String mediaIdStr) {
+            JSONArray result = new JSONArray();
+            try {
+                long mediaId = Long.parseLong(mediaIdStr);
+                Uri contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+
+                // 1. Query embedded subtitle tracks using MediaExtractor
+                try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(contentUri, "r")) {
+                    if (pfd != null) {
+                        MediaExtractor extractor = new MediaExtractor();
+                        extractor.setDataSource(pfd.getFileDescriptor());
+                        int trackCount = extractor.getTrackCount();
+                        int subIndex = 0;
+                        for (int i = 0; i < trackCount; i++) {
+                            MediaFormat format = extractor.getTrackFormat(i);
+                            String mime = format.getString(MediaFormat.KEY_MIME);
+                            if (mime != null && (mime.startsWith("text/") || mime.contains("subrip") || mime.contains("vtt") || mime.contains("subtitle") || mime.contains("ssa") || mime.contains("ass"))) {
+                                JSONObject subObj = new JSONObject();
+                                subObj.put("id", subIndex);
+                                subObj.put("extractorIndex", i);
+                                subObj.put("type", "embedded");
+
+                                String lang = format.containsKey(MediaFormat.KEY_LANGUAGE) ? format.getString(MediaFormat.KEY_LANGUAGE) : "und";
+                                String title = format.containsKey("title") ? format.getString("title") : "";
+                                String displayLang = getLanguageDisplayName(lang);
+                                String label = !title.isEmpty() ? title : (displayLang + " [Embedded]");
+
+                                subObj.put("name", label);
+                                subObj.put("language", displayLang);
+                                subObj.put("mime", mime);
+                                result.put(subObj);
+                                subIndex++;
+                            }
+                        }
+                        extractor.release();
+                    }
+                }
+
+                // 2. Query companion subtitle files (.srt, .vtt) in same folder
+                String videoPath = getVideoPathById(mediaId);
+                if (videoPath != null && !videoPath.isEmpty()) {
+                    File videoFile = new File(videoPath);
+                    File parentDir = videoFile.getParentFile();
+                    if (parentDir != null && parentDir.exists() && parentDir.isDirectory()) {
+                        String baseName = videoFile.getName();
+                        int dot = baseName.lastIndexOf('.');
+                        if (dot > 0) baseName = baseName.substring(0, dot);
+                        final String base = baseName.toLowerCase(Locale.US);
+
+                        File[] matches = parentDir.listFiles((dir, name) -> {
+                            String lower = name.toLowerCase(Locale.US);
+                            return (lower.endsWith(".srt") || lower.endsWith(".vtt") || lower.endsWith(".ass") || lower.endsWith(".ssa"))
+                                    && lower.startsWith(base);
+                        });
+
+                        if (matches != null) {
+                            for (File subFile : matches) {
+                                JSONObject extObj = new JSONObject();
+                                extObj.put("id", result.length());
+                                extObj.put("extractorIndex", -1);
+                                extObj.put("type", "external_file");
+                                extObj.put("path", subFile.getAbsolutePath());
+                                extObj.put("name", subFile.getName() + " [Folder]");
+                                extObj.put("language", "Local");
+                                result.put(extObj);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting subtitle tracks", e);
+            }
+            return result.toString();
+        }
+
+        @JavascriptInterface
+        public String getSubtitleContent(String mediaIdStr, int extractorIndex, String filePath) {
+            // Read from external companion file
+            if (filePath != null && !filePath.isEmpty()) {
+                try {
+                    File file = new File(filePath);
+                    if (file.exists()) {
+                        try (FileInputStream fis = new FileInputStream(file)) {
+                            byte[] data = new byte[(int) file.length()];
+                            fis.read(data);
+                            return new String(data, StandardCharsets.UTF_8);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error reading companion subtitle file", e);
+                }
+            }
+
+            // Extract from embedded track
+            try {
+                long mediaId = Long.parseLong(mediaIdStr);
+                Uri contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+                try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(contentUri, "r")) {
+                    if (pfd != null) {
+                        MediaExtractor extractor = new MediaExtractor();
+                        extractor.setDataSource(pfd.getFileDescriptor());
+                        extractor.selectTrack(extractorIndex);
+
+                        ByteBuffer buffer = ByteBuffer.allocate(64 * 1024);
+                        StringBuilder srtBuilder = new StringBuilder();
+                        int cueIndex = 1;
+
+                        while (true) {
+                            buffer.clear();
+                            int sampleSize = extractor.readSampleData(buffer, 0);
+                            if (sampleSize <= 0) break;
+
+                            long timeUs = extractor.getSampleTime();
+                            byte[] bytes = new byte[sampleSize];
+                            buffer.get(bytes);
+
+                            String text = new String(bytes, StandardCharsets.UTF_8).trim();
+                            text = text.replace("\u0000", "").trim();
+
+                            if (!text.isEmpty()) {
+                                long startTimeMs = timeUs / 1000;
+                                long endTimeMs = startTimeMs + 3500; // default 3.5s duration
+
+                                srtBuilder.append(cueIndex++).append("\n");
+                                srtBuilder.append(formatSrtTime(startTimeMs)).append(" --> ").append(formatSrtTime(endTimeMs)).append("\n");
+                                srtBuilder.append(text).append("\n\n");
+                            }
+
+                            if (!extractor.advance()) break;
+                        }
+
+                        extractor.release();
+                        return srtBuilder.toString();
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error extracting embedded subtitles", e);
+            }
+            return "";
+        }
+
+        @JavascriptInterface
+        public String prepareAudioTrack(String mediaIdStr, int extractorIndex) {
+            try {
+                long mediaId = Long.parseLong(mediaIdStr);
+                return extractAudioTrack(mediaId, extractorIndex);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        private String getLanguageDisplayName(String code) {
+            if (code == null || code.isEmpty() || "und".equalsIgnoreCase(code)) return "Default";
+            switch (code.toLowerCase(Locale.US)) {
+                case "hin": return "Hindi";
+                case "eng": return "English";
+                case "spa": return "Spanish";
+                case "fra": case "fre": return "French";
+                case "deu": case "ger": return "German";
+                case "ita": return "Italian";
+                case "jpn": return "Japanese";
+                case "kor": return "Korean";
+                case "zho": case "chi": return "Chinese";
+                case "rus": return "Russian";
+                case "ara": return "Arabic";
+                case "tam": return "Tamil";
+                case "tel": return "Telugu";
+                case "urd": return "Urdu";
+                case "ben": return "Bengali";
+                case "pan": return "Punjabi";
+                default:
+                    try {
+                        Locale loc = new Locale(code);
+                        String name = loc.getDisplayLanguage(Locale.US);
+                        if (name != null && !name.isEmpty() && !name.equalsIgnoreCase(code)) {
+                            return name;
+                        }
+                    } catch (Exception ignored) {}
+                    return code.toUpperCase(Locale.US);
+            }
+        }
+
+        private String getVideoPathById(long mediaId) {
+            String path = null;
+            try {
+                Uri uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+                Cursor cursor = getContentResolver().query(uri, new String[]{MediaStore.Video.Media.DATA}, null, null, null);
+                if (cursor != null) {
+                    if (cursor.moveToFirst()) {
+                        int idx = cursor.getColumnIndex(MediaStore.Video.Media.DATA);
+                        if (idx != -1) path = cursor.getString(idx);
+                    }
+                    cursor.close();
+                }
+            } catch (Exception ignored) {}
+            return path;
+        }
+
+        private String formatSrtTime(long millis) {
+            long hrs = millis / 3600000;
+            long mins = (millis % 3600000) / 60000;
+            long secs = (millis % 60000) / 1000;
+            long ms = millis % 1000;
+            return String.format(Locale.US, "%02d:%02d:%02d,%03d", hrs, mins, secs, ms);
+        }
+
         private String formatDuration(long millis) {
             long totalSeconds = millis / 1000;
             long hours = totalSeconds / 3600;
@@ -625,6 +887,56 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 return String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
             }
+        }
+    }
+
+    public String extractAudioTrack(long mediaId, int extractorIndex) {
+        File outFile = new File(getCacheDir(), "audio_" + mediaId + "_" + extractorIndex + ".m4a");
+        if (outFile.exists() && outFile.length() > 1024) {
+            return "http://127.0.0.1:" + serverPort + "/audio?id=" + mediaId + "&track=" + extractorIndex;
+        }
+
+        try {
+            Uri contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+            try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(contentUri, "r")) {
+                if (pfd == null) return "";
+                MediaExtractor extractor = new MediaExtractor();
+                extractor.setDataSource(pfd.getFileDescriptor());
+                extractor.selectTrack(extractorIndex);
+                MediaFormat format = extractor.getTrackFormat(extractorIndex);
+
+                File tempFile = new File(getCacheDir(), "temp_audio_" + mediaId + "_" + extractorIndex + ".m4a");
+                if (tempFile.exists()) tempFile.delete();
+
+                MediaMuxer muxer = new MediaMuxer(tempFile.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                int muxerTrackIndex = muxer.addTrack(format);
+                muxer.start();
+
+                ByteBuffer buffer = ByteBuffer.allocate(128 * 1024);
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+
+                while (true) {
+                    buffer.clear();
+                    int sampleSize = extractor.readSampleData(buffer, 0);
+                    if (sampleSize < 0) break;
+                    info.offset = 0;
+                    info.size = sampleSize;
+                    info.presentationTimeUs = extractor.getSampleTime();
+                    info.flags = extractor.getSampleFlags();
+                    muxer.writeSampleData(muxerTrackIndex, buffer, info);
+                    extractor.advance();
+                }
+
+                muxer.stop();
+                muxer.release();
+                extractor.release();
+
+                tempFile.renameTo(outFile);
+                return "http://127.0.0.1:" + serverPort + "/audio?id=" + mediaId + "&track=" + extractorIndex;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error extracting audio track " + extractorIndex, e);
+            return "";
         }
     }
 
@@ -725,6 +1037,102 @@ public class MainActivity extends AppCompatActivity {
                         OutputStream out = socket.getOutputStream();
                         out.write("HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\n\r\n".getBytes());
                         out.flush();
+                        socket.close();
+                        return;
+                    }
+
+                    if (path.startsWith("/audio")) {
+                        int trackIndex = 0;
+                        if (path.contains("track=")) {
+                            String trackStr = path.substring(path.indexOf("track=") + 6);
+                            int amp = trackStr.indexOf('&');
+                            if (amp != -1) trackStr = trackStr.substring(0, amp);
+                            try { trackIndex = Integer.parseInt(trackStr); } catch (Exception ignored) {}
+                        }
+
+                        File audioFile = new File(getCacheDir(), "audio_" + mediaId + "_" + trackIndex + ".m4a");
+                        if (!audioFile.exists() || audioFile.length() < 1024) {
+                            extractAudioTrack(mediaId, trackIndex);
+                        }
+
+                        if (!audioFile.exists() || audioFile.length() == 0) {
+                            OutputStream out = socket.getOutputStream();
+                            out.write("HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\n\r\n".getBytes());
+                            out.flush();
+                            socket.close();
+                            return;
+                        }
+
+                        long fileLength = audioFile.length();
+                        long start = 0;
+                        long end = fileLength - 1;
+
+                        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                            Pattern pattern = Pattern.compile("bytes=(\\d+)-(\\d*)");
+                            Matcher matcher = pattern.matcher(rangeHeader);
+                            if (matcher.find()) {
+                                start = Long.parseLong(matcher.group(1));
+                                String endStr = matcher.group(2);
+                                if (endStr != null && !endStr.isEmpty()) {
+                                    end = Long.parseLong(endStr);
+                                }
+                            }
+                        }
+
+                        if (start >= fileLength) {
+                            OutputStream out = socket.getOutputStream();
+                            String response = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + fileLength + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
+                            out.write(response.getBytes());
+                            out.flush();
+                            socket.close();
+                            return;
+                        }
+
+                        long contentLength = (end - start) + 1;
+                        OutputStream out = socket.getOutputStream();
+
+                        StringBuilder header = new StringBuilder();
+                        if (rangeHeader != null) {
+                            header.append("HTTP/1.1 206 Partial Content\r\n");
+                            header.append("Content-Range: bytes ").append(start).append("-").append(end).append("/").append(fileLength).append("\r\n");
+                        } else {
+                            header.append("HTTP/1.1 200 OK\r\n");
+                        }
+                        header.append("Content-Type: audio/mp4\r\n");
+                        header.append("Content-Length: ").append(contentLength).append("\r\n");
+                        header.append("Accept-Ranges: bytes\r\n");
+                        header.append("Access-Control-Allow-Origin: *\r\n");
+                        header.append("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n");
+                        header.append("Access-Control-Allow-Headers: Range, Content-Type, Accept-Ranges\r\n");
+                        header.append("Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges\r\n");
+                        header.append("Connection: close\r\n\r\n");
+
+                        out.write(header.toString().getBytes());
+
+                        if ("HEAD".equalsIgnoreCase(method)) {
+                            out.flush();
+                            socket.close();
+                            return;
+                        }
+
+                        try (FileInputStream fis = new FileInputStream(audioFile)) {
+                            if (start > 0) {
+                                fis.getChannel().position(start);
+                            }
+
+                            byte[] buffer = new byte[64 * 1024];
+                            long bytesRemaining = contentLength;
+
+                            while (bytesRemaining > 0) {
+                                int toRead = (int) Math.min(buffer.length, bytesRemaining);
+                                int read = fis.read(buffer, 0, toRead);
+                                if (read == -1) break;
+                                out.write(buffer, 0, read);
+                                bytesRemaining -= read;
+                            }
+
+                            out.flush();
+                        }
                         socket.close();
                         return;
                     }

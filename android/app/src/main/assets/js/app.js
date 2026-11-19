@@ -110,8 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
     scheduleHideControls();
   }
 
-  function hideControls() {
-    if (video.paused) return; // Keep visible indefinitely while paused!
+  function hideControls(force = false) {
+    if (video.paused && !force) return; // Keep visible indefinitely while paused unless forced by user tap
     playerControls.classList.remove('visible');
     container.classList.remove('controls-visible');
   }
@@ -130,9 +130,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('qb:show-controls', showControls);
+  window.addEventListener('qb:hide-controls', () => hideControls(true));
   window.addEventListener('qb:toggle-controls', () => {
     if (playerControls.classList.contains('visible')) {
-      hideControls();
+      hideControls(true);
     } else {
       showControls();
     }
@@ -199,6 +200,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Check for saved resume position ("Play Where Left")
     checkAndPromptResume();
+
+    // Auto-detect and auto-load embedded or companion subtitle if not yet loaded
+    const currentMediaId = PlayerCore.getCurrentMediaId ? PlayerCore.getCurrentMediaId() : null;
+    if (currentMediaId && window.AndroidBridge && window.AndroidBridge.getSubtitleTracks && SubtitlesManager.getTracks().length === 0) {
+      try {
+        const rawSubs = window.AndroidBridge.getSubtitleTracks(String(currentMediaId));
+        if (rawSubs) {
+          const subTracks = JSON.parse(rawSubs);
+          if (subTracks && subTracks.length > 0) {
+            const firstSub = subTracks[0];
+            const content = window.AndroidBridge.getSubtitleContent(String(currentMediaId), firstSub.extractorIndex, firstSub.path || '');
+            if (content) {
+              SubtitlesManager.loadFromText(content, firstSub.name);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Auto-loading subtitle on loadedmetadata failed:', err);
+      }
+    }
   });
 
   video.addEventListener('ended', () => {
@@ -434,20 +455,64 @@ document.addEventListener('DOMContentLoaded', () => {
     const listEl = document.getElementById('audio-track-list');
     listEl.innerHTML = '';
 
-    const tracks = PlayerCore.getAudioTracks();
-    tracks.forEach(track => {
-      const item = document.createElement('div');
-      item.className = `track-item ${track.enabled ? 'selected' : ''}`;
-      item.innerHTML = `
-        <span>${track.label} (${track.language})</span>
-        ${track.enabled ? '<span>✓ Active</span>' : ''}
-      `;
-      item.addEventListener('click', () => {
-        PlayerCore.selectAudioTrack(track.id);
-        populateAudioModal();
+    const currentMediaId = PlayerCore.getCurrentMediaId ? PlayerCore.getCurrentMediaId() : null;
+    let nativeTracks = [];
+    if (window.AndroidBridge && window.AndroidBridge.getAudioTracks && currentMediaId) {
+      try {
+        const raw = window.AndroidBridge.getAudioTracks(String(currentMediaId));
+        if (raw) nativeTracks = JSON.parse(raw);
+      } catch (e) {
+        console.warn('Failed parsing native audio tracks:', e);
+      }
+    }
+
+    if (nativeTracks && nativeTracks.length > 0) {
+      const activeId = PlayerCore.getActiveEmbeddedTrackId ? PlayerCore.getActiveEmbeddedTrackId() : 0;
+      nativeTracks.forEach(track => {
+        const isSelected = (track.id === activeId);
+        const item = document.createElement('div');
+        item.className = `track-item ${isSelected ? 'selected' : ''}`;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = track.name;
+        item.appendChild(nameSpan);
+
+        if (isSelected) {
+          const activeSpan = document.createElement('span');
+          activeSpan.textContent = '✓ Active';
+          item.appendChild(activeSpan);
+        }
+
+        item.addEventListener('click', () => {
+          PlayerCore.selectEmbeddedAudioTrack(track);
+          populateAudioModal();
+          showQuickNotification(`Audio: ${track.name}`);
+        });
+        listEl.appendChild(item);
       });
-      listEl.appendChild(item);
-    });
+    } else {
+      const tracks = PlayerCore.getAudioTracks();
+      tracks.forEach(track => {
+        const item = document.createElement('div');
+        item.className = `track-item ${track.enabled ? 'selected' : ''}`;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `${track.label} (${track.language})`;
+        item.appendChild(nameSpan);
+
+        if (track.enabled) {
+          const activeSpan = document.createElement('span');
+          activeSpan.textContent = '✓ Active';
+          item.appendChild(activeSpan);
+        }
+
+        item.addEventListener('click', () => {
+          PlayerCore.selectAudioTrack(track.id);
+          populateAudioModal();
+        });
+        listEl.appendChild(item);
+      });
+    }
 
     // HW+ Boost Slider (100% to 200%)
     const boostSlider = document.getElementById('audio-boost-slider');
@@ -489,24 +554,88 @@ document.addEventListener('DOMContentLoaded', () => {
     const trackListEl = document.getElementById('sub-track-list');
     trackListEl.innerHTML = '';
 
-    const tracks = SubtitlesManager.getTracks();
-    if (tracks.length === 0) {
-      trackListEl.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">No external subtitle loaded yet. Click button below to load .srt, .vtt, or .ass file.</div>';
-    } else {
-      tracks.forEach(track => {
+    const currentMediaId = PlayerCore.getCurrentMediaId ? PlayerCore.getCurrentMediaId() : null;
+    let nativeSubs = [];
+    if (window.AndroidBridge && window.AndroidBridge.getSubtitleTracks && currentMediaId) {
+      try {
+        const raw = window.AndroidBridge.getSubtitleTracks(String(currentMediaId));
+        if (raw) nativeSubs = JSON.parse(raw);
+      } catch (e) {
+        console.warn('Failed parsing native subtitle tracks:', e);
+      }
+    }
+
+    const activeTrackIdx = SubtitlesManager.getActiveTrackIndex ? SubtitlesManager.getActiveTrackIndex() : -1;
+    const activeTrackName = SubtitlesManager.getActiveTrackName ? SubtitlesManager.getActiveTrackName() : null;
+
+    // "None / Subtitles Off" option
+    const noneItem = document.createElement('div');
+    const isNone = (activeTrackIdx === -1 || !activeTrackName);
+    noneItem.className = `track-item ${isNone ? 'selected' : ''}`;
+    noneItem.innerHTML = `<span>None (Subtitles Off)</span>${isNone ? '<span>✓ Active</span>' : ''}`;
+    noneItem.addEventListener('click', () => {
+      SubtitlesManager.selectTrack(-1);
+      populateSubtitleModal();
+      showQuickNotification('Subtitles Off');
+    });
+    trackListEl.appendChild(noneItem);
+
+    // Native embedded & companion subtitle tracks
+    if (nativeSubs && nativeSubs.length > 0) {
+      nativeSubs.forEach(track => {
+        const isSelected = (activeTrackName === track.name);
         const item = document.createElement('div');
-        item.className = `track-item ${track.isActive ? 'selected' : ''}`;
-        item.innerHTML = `
-          <span>${track.name}</span>
-          ${track.isActive ? '<span>✓ Active</span>' : ''}
-        `;
+        item.className = `track-item ${isSelected ? 'selected' : ''}`;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = track.name;
+        item.appendChild(nameSpan);
+
+        if (isSelected) {
+          const activeSpan = document.createElement('span');
+          activeSpan.textContent = '✓ Active';
+          item.appendChild(activeSpan);
+        }
+
         item.addEventListener('click', () => {
-          SubtitlesManager.selectTrack(track.index);
-          populateSubtitleModal();
+          if (window.AndroidBridge && window.AndroidBridge.getSubtitleContent) {
+            const content = window.AndroidBridge.getSubtitleContent(String(currentMediaId), track.extractorIndex, track.path || '');
+            if (content) {
+              SubtitlesManager.loadFromText(content, track.name);
+              populateSubtitleModal();
+              showQuickNotification(`Subtitles: ${track.name}`);
+            } else {
+              showQuickNotification('No subtitle text found');
+            }
+          }
         });
         trackListEl.appendChild(item);
       });
     }
+
+    // Additional loaded tracks (e.g. from manual file picker if different)
+    const existingTracks = SubtitlesManager.getTracks();
+    existingTracks.forEach(t => {
+      if (nativeSubs.some(ns => ns.name === t.name)) return;
+      const item = document.createElement('div');
+      item.className = `track-item ${t.isActive ? 'selected' : ''}`;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = t.name;
+      item.appendChild(nameSpan);
+
+      if (t.isActive) {
+        const activeSpan = document.createElement('span');
+        activeSpan.textContent = '✓ Active';
+        item.appendChild(activeSpan);
+      }
+
+      item.addEventListener('click', () => {
+        SubtitlesManager.selectTrack(t.index);
+        populateSubtitleModal();
+      });
+      trackListEl.appendChild(item);
+    });
 
     // Subtitle Sync Offset
     const syncValEl = document.getElementById('sub-sync-val');

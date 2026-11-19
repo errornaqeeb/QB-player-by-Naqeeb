@@ -306,25 +306,6 @@ const MediaBrowser = (function() {
     PlayerCore.loadSource(video.url || video.path, video.title);
     PlayerCore.play();
 
-    // Auto-detect and auto-load embedded or companion subtitle if present
-    if (window.AndroidBridge && window.AndroidBridge.getSubtitleTracks && video.id) {
-      try {
-        const rawSubs = window.AndroidBridge.getSubtitleTracks(String(video.id));
-        if (rawSubs) {
-          const subTracks = JSON.parse(rawSubs);
-          if (subTracks && subTracks.length > 0) {
-            const firstSub = subTracks[0];
-            const content = window.AndroidBridge.getSubtitleContent(String(video.id), firstSub.extractorIndex, firstSub.path || "");
-            if (content && window.SubtitlesManager) {
-              window.SubtitlesManager.loadFromText(content, firstSub.name);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Auto-loading subtitle failed:', err);
-      }
-    }
-
     // Update Topbar
     const titleEl = document.getElementById('topbar-video-title');
     if (titleEl) titleEl.textContent = video.title;
@@ -337,6 +318,12 @@ const MediaBrowser = (function() {
    */
   function returnToBrowser() {
     PlayerCore.pause();
+    if (PlayerCore.stopNativeTimeUpdates) {
+      PlayerCore.stopNativeTimeUpdates();
+    }
+    if (window.AndroidBridge && window.AndroidBridge.stopAndHidePlayer) {
+      window.AndroidBridge.stopAndHidePlayer();
+    }
     if (window.AndroidBridge && window.AndroidBridge.setOrientation) {
       window.AndroidBridge.setOrientation('sensor');
     }

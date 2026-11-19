@@ -41,6 +41,24 @@ html, body {
   font-family: var(--font-family);
 }
 
+/* Native ExoPlayer Android Mode: transparent WebView allowing native hardware video & subtitles to render underneath */
+body.native-exoplayer {
+  background-color: transparent !important;
+}
+
+body.native-exoplayer #player-container {
+  background-color: transparent !important;
+}
+
+body.native-exoplayer #video-element {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+body.native-exoplayer #subtitle-text {
+  display: none !important;
+}
+
 /* ================= Player Root Container ================= */
 #player-container {
   position: relative;

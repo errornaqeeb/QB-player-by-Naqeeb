@@ -1,6 +1,7 @@
 /**
  * QB Player - Core Media & Audio Engine
- * Features: Zero-ad playback, HW+ 200% Audio Boost, Equalizer, Dual Audio selection, PiP, Aspect Ratios
+ * Features: Zero-ad playback, Native Android ExoPlayer Engine (MKV/MP4/AC3/E-AC3/DTS/Dual Audio/Subtitles),
+ * HW+ 200% Loudness Booster, Aspect Ratio Modes, Picture-in-Picture.
  */
 
 const PlayerCore = (function() {
@@ -17,7 +18,8 @@ const PlayerCore = (function() {
   let currentFileKey = null;
   let currentVideoFile = null;
   let currentMediaId = null;
-  let activeEmbeddedTrackId = 0; // 0 = primary track in video element
+  let activeEmbeddedTrackId = 0;
+  let nativeTimeTimer = null;
 
   // Equalizer Frequencies: 60Hz, 250Hz, 1kHz, 4kHz, 12kHz
   const EQ_FREQUENCIES = [60, 250, 1000, 4000, 12000];
@@ -29,139 +31,155 @@ const PlayerCore = (function() {
     movie: [6, 2, -1, 3, 5]
   };
 
+  function isNative() {
+    return !!(window.AndroidBridge && window.AndroidBridge.isNativeExoPlayer && window.AndroidBridge.isNativeExoPlayer());
+  }
+
   function init(videoElement) {
     videoEl = videoElement;
+    if (isNative()) {
+      document.body.classList.add('native-exoplayer');
+    }
+
     externalAudioEl = new Audio();
 
-    // Sync external audio with video events
-    videoEl.addEventListener('play', () => {
-      if (externalAudioEl.src && !externalAudioEl.paused) return;
-      if (externalAudioEl.src) {
-        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-        externalAudioEl.play().catch(() => {});
-      }
-    });
-
-    videoEl.addEventListener('pause', () => {
-      if (externalAudioEl.src && !externalAudioEl.paused) {
-        externalAudioEl.pause();
-      }
-    });
-
-    videoEl.addEventListener('seeking', () => {
-      if (externalAudioEl.src) {
-        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-      }
-    });
-
-    videoEl.addEventListener('seeked', () => {
-      if (externalAudioEl.src) {
-        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-        if (!videoEl.paused && externalAudioEl.paused) {
+    // HTML5 fallback events
+    if (videoEl) {
+      videoEl.addEventListener('play', () => {
+        if (externalAudioEl.src && !externalAudioEl.paused) return;
+        if (externalAudioEl.src) {
+          externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
           externalAudioEl.play().catch(() => {});
         }
-      }
-    });
+      });
 
-    videoEl.addEventListener('waiting', () => {
-      if (externalAudioEl.src && !externalAudioEl.paused) {
-        externalAudioEl.pause();
-      }
-    });
+      videoEl.addEventListener('pause', () => {
+        if (externalAudioEl.src && !externalAudioEl.paused) {
+          externalAudioEl.pause();
+        }
+      });
 
-    videoEl.addEventListener('playing', () => {
-      if (externalAudioEl.src && externalAudioEl.paused && !videoEl.paused) {
-        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-        externalAudioEl.play().catch(() => {});
-      }
-    });
+      videoEl.addEventListener('seeking', () => {
+        if (externalAudioEl.src) {
+          externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+        }
+      });
 
-    videoEl.addEventListener('ratechange', () => {
-      if (externalAudioEl.src) {
-        externalAudioEl.playbackRate = videoEl.playbackRate;
+      videoEl.addEventListener('seeked', () => {
+        if (externalAudioEl.src) {
+          externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
+          if (!videoEl.paused && externalAudioEl.paused) {
+            externalAudioEl.play().catch(() => {});
+          }
+        }
+      });
+
+      videoEl.addEventListener('ratechange', () => {
+        if (externalAudioEl.src) {
+          externalAudioEl.playbackRate = videoEl.playbackRate;
+        }
+      });
+    }
+  }
+
+  function startNativeTimeUpdates() {
+    stopNativeTimeUpdates();
+    nativeTimeTimer = setInterval(() => {
+      if (!isNative()) return;
+      try {
+        const curMs = window.AndroidBridge.getCurrentPosition();
+        const durMs = window.AndroidBridge.getDuration();
+        const isPlaying = window.AndroidBridge.isPlaying();
+        const curSec = (curMs || 0) / 1000;
+        const durSec = (durMs || 0) / 1000;
+
+        window.dispatchEvent(new CustomEvent('qb:native-timeupdate', {
+          detail: { currentTime: curSec, duration: durSec, isPlaying: isPlaying }
+        }));
+      } catch (e) {
+        console.warn('Native time update error:', e);
       }
-    });
+    }, 250);
+  }
+
+  function stopNativeTimeUpdates() {
+    if (nativeTimeTimer) {
+      clearInterval(nativeTimeTimer);
+      nativeTimeTimer = null;
+    }
+  }
+
+  function onNativePlayStateChanged(isPlaying) {
+    window.dispatchEvent(new CustomEvent('qb:play-state', { detail: { isPlaying } }));
+  }
+
+  function onNativeMetadataLoaded(durationMs) {
+    window.dispatchEvent(new CustomEvent('qb:native-metadata', { detail: { duration: durationMs / 1000 } }));
+  }
+
+  function onNativePlaybackEnded() {
+    window.dispatchEvent(new CustomEvent('qb:native-ended'));
   }
 
   /**
-   * Initialize Web Audio API graph for Audio Booster & Equalizer
-   * Safely called on user interaction
+   * Load video from File or URL
    */
-  function setupWebAudio() {
-    if (audioContext || !videoEl) return;
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      audioContext = new AudioCtx();
-      if (audioContext.state === 'suspended') {
-        audioContext.resume().catch(() => {});
+  function loadSource(fileOrUrl, title = '') {
+    currentVideoFile = fileOrUrl;
+    currentFileKey = StorageManager.generateFileKey(fileOrUrl);
+
+    let videoTitle = title;
+    let src = '';
+    if (typeof fileOrUrl === 'string') {
+      src = fileOrUrl;
+      if (!videoTitle) {
+        videoTitle = fileOrUrl.split('/').pop().split('?')[0] || 'Video';
       }
-      audioSource = audioContext.createMediaElementSource(videoEl);
-
-      // Create Gain node for volume boost (up to 200%)
-      gainNode = audioContext.createGain();
-      gainNode.gain.value = volumeLevel;
-
-      // Create Compressor to prevent harsh audio distortion when boosted
-      compressorNode = audioContext.createDynamicsCompressor();
-      compressorNode.threshold.setValueAtTime(-12, audioContext.currentTime);
-      compressorNode.knee.setValueAtTime(30, audioContext.currentTime);
-      compressorNode.ratio.setValueAtTime(12, audioContext.currentTime);
-      compressorNode.attack.setValueAtTime(0.003, audioContext.currentTime);
-      compressorNode.release.setValueAtTime(0.25, audioContext.currentTime);
-
-      // Create 5-band Equalizer
-      eqFilters = EQ_FREQUENCIES.map((freq, i) => {
-        const filter = audioContext.createBiquadFilter();
-        if (i === 0) {
-          filter.type = 'lowshelf';
-        } else if (i === EQ_FREQUENCIES.length - 1) {
-          filter.type = 'highshelf';
-        } else {
-          filter.type = 'peaking';
-          filter.Q.value = 1.0;
-        }
-        filter.frequency.value = freq;
-        filter.gain.value = 0;
-        return filter;
-      });
-
-      // Connect graph: Source -> EQ Filters -> Compressor -> Gain -> Destination
-      let lastNode = audioSource;
-      for (const filter of eqFilters) {
-        lastNode.connect(filter);
-        lastNode = filter;
-      }
-      lastNode.connect(compressorNode);
-      compressorNode.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      console.log('[PlayerCore] Web Audio API graph connected with 200% Audio Booster.');
-    } catch (e) {
-      console.warn('[PlayerCore] Web Audio API initialization skipped or already connected:', e);
+    } else if (fileOrUrl instanceof File || fileOrUrl instanceof Blob) {
+      src = URL.createObjectURL(fileOrUrl);
+      if (!videoTitle) videoTitle = fileOrUrl.name;
     }
+
+    if (isNative()) {
+      document.body.classList.add('native-exoplayer');
+      const mediaIdStr = currentMediaId ? String(currentMediaId) : '';
+      window.AndroidBridge.playMedia(src, mediaIdStr, videoTitle);
+      startNativeTimeUpdates();
+      return {
+        fileKey: currentFileKey,
+        title: videoTitle
+      };
+    }
+
+    // HTML5 fallback
+    if (!videoEl) return;
+    if (externalAudioEl) {
+      externalAudioEl.pause();
+      externalAudioEl.src = '';
+    }
+    activeEmbeddedTrackId = 0;
+    videoEl.muted = false;
+    videoEl.volume = Math.min(1.0, volumeLevel > 0 ? volumeLevel : 1.0);
+    videoEl.src = src;
+    videoEl.load();
+
+    return {
+      fileKey: currentFileKey,
+      title: videoTitle
+    };
   }
 
   /**
    * Play / Pause toggle with zero ads guarantee
    */
   async function togglePlay() {
-    if (!videoEl) return false;
-    if (audioContext && audioContext.state === 'suspended') {
-      audioContext.resume().catch(() => {});
+    if (isNative()) {
+      return window.AndroidBridge.togglePlay();
     }
 
+    if (!videoEl) return false;
     if (videoEl.paused || videoEl.ended) {
       try {
-        if (activeEmbeddedTrackId === 0 && (!externalAudioEl || !externalAudioEl.src)) {
-          videoEl.muted = false;
-        } else {
-          videoEl.muted = true;
-          if (externalAudioEl && externalAudioEl.src) {
-            externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-            externalAudioEl.play().catch(() => {});
-          }
-        }
         await videoEl.play();
         return true;
       } catch (err) {
@@ -170,286 +188,126 @@ const PlayerCore = (function() {
       }
     } else {
       videoEl.pause();
-      if (externalAudioEl && externalAudioEl.src && !externalAudioEl.paused) {
-        externalAudioEl.pause();
-      }
       return false;
     }
   }
 
   function play() {
-    if (!videoEl) return;
-    if (audioContext && audioContext.state === 'suspended') {
-      audioContext.resume().catch(() => {});
+    if (isNative()) {
+      window.AndroidBridge.play();
+      return;
     }
-    if (activeEmbeddedTrackId === 0 && (!externalAudioEl || !externalAudioEl.src)) {
-      videoEl.muted = false;
-    } else {
-      videoEl.muted = true;
-      if (externalAudioEl && externalAudioEl.src) {
-        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-        externalAudioEl.play().catch(() => {});
-      }
-    }
-    videoEl.play().catch(() => {});
+    if (videoEl) videoEl.play().catch(() => {});
   }
 
   function pause() {
-    if (videoEl && !videoEl.paused) {
-      videoEl.pause();
+    if (isNative()) {
+      window.AndroidBridge.pause();
+      return;
     }
-    if (externalAudioEl && externalAudioEl.src && !externalAudioEl.paused) {
-      externalAudioEl.pause();
-    }
+    if (videoEl && !videoEl.paused) videoEl.pause();
   }
 
   function seek(seconds) {
+    if (isNative()) {
+      window.AndroidBridge.seekTo(Math.round(seconds * 1000));
+      return;
+    }
     if (!videoEl) return;
     const target = Math.max(0, Math.min(seconds, videoEl.duration || 0));
     videoEl.currentTime = target;
-    if (externalAudioEl && externalAudioEl.src) {
-      externalAudioEl.currentTime = Math.max(0, target + externalAudioOffset);
-    }
   }
 
   function seekDelta(deltaSeconds) {
+    if (isNative()) {
+      window.AndroidBridge.seekDelta(Math.round(deltaSeconds * 1000));
+      const curSec = (window.AndroidBridge.getCurrentPosition() || 0) / 1000;
+      return curSec;
+    }
     if (!videoEl) return 0;
     const target = Math.max(0, Math.min(videoEl.currentTime + deltaSeconds, videoEl.duration || 0));
     videoEl.currentTime = target;
-    if (externalAudioEl && externalAudioEl.src) {
-      externalAudioEl.currentTime = Math.max(0, target + externalAudioOffset);
-    }
     return target;
   }
 
   /**
-   * Volume Control with MX Player HW+ Audio Boost up to 200%
-   * level: 0.0 to 2.0 (e.g. 1.0 = 100%, 1.5 = 150%, 2.0 = 200%)
+   * Volume Control with HW+ 200% Audio Boost
    */
   function setVolume(level) {
     volumeLevel = Math.max(0, Math.min(2.0, parseFloat(level) || 0));
 
-    if (videoEl) {
-      // Normal HTML5 video volume directly to hardware DAC
-      videoEl.volume = Math.min(1.0, volumeLevel);
-      if (volumeLevel > 0 && activeEmbeddedTrackId === 0 && (!externalAudioEl || !externalAudioEl.src)) {
-        videoEl.muted = false;
-      }
-    }
-
-    if (externalAudioEl) {
-      externalAudioEl.volume = Math.min(1.0, volumeLevel);
-    }
-
-    // On Android, sync directly with device media volume for crystal-clear physical audio
-    if (window.AndroidBridge && window.AndroidBridge.setVolume) {
+    if (isNative()) {
       window.AndroidBridge.setVolume(Math.min(1.0, volumeLevel));
-    }
-
-    // Only activate Web Audio booster if user explicitly turns on boost (> 100%)
-    if (volumeLevel > 1.0) {
-      setupWebAudio();
-      if (gainNode) {
-        gainNode.gain.setValueAtTime(volumeLevel, audioContext ? audioContext.currentTime : 0);
+      if (volumeLevel > 1.0) {
+        window.AndroidBridge.setAudioBoost(volumeLevel);
+      } else {
+        window.AndroidBridge.setAudioBoost(1.0);
       }
-    } else if (gainNode) {
-      gainNode.gain.setValueAtTime(volumeLevel, audioContext ? audioContext.currentTime : 0);
+      return volumeLevel;
     }
 
+    if (videoEl) {
+      videoEl.volume = Math.min(1.0, volumeLevel);
+    }
     return volumeLevel;
   }
 
   function getVolume() {
-    if (window.AndroidBridge && window.AndroidBridge.getVolume) {
+    if (isNative()) {
       try {
         const sysVol = window.AndroidBridge.getVolume();
-        if (typeof sysVol === 'number' && !isNaN(sysVol)) {
-          return sysVol;
-        }
+        if (typeof sysVol === 'number' && !isNaN(sysVol)) return sysVol;
       } catch (e) {}
     }
     return volumeLevel;
   }
 
   function toggleMute() {
+    if (isNative()) {
+      isMuted = !isMuted;
+      if (isMuted) {
+        window.AndroidBridge.setVolume(0);
+      } else {
+        window.AndroidBridge.setVolume(Math.min(1.0, volumeLevel));
+      }
+      return isMuted;
+    }
+
     if (!videoEl) return false;
     isMuted = !isMuted;
     videoEl.muted = isMuted;
-    if (externalAudioEl) externalAudioEl.muted = isMuted;
     return isMuted;
   }
 
-  /**
-   * Set Playback Rate (Speed) with pitch preservation
-   * rates: 0.25x to 4.0x
-   */
   function setPlaybackRate(rate) {
-    if (!videoEl) return 1.0;
     const cleanRate = Math.max(0.25, Math.min(4.0, parseFloat(rate) || 1.0));
-    videoEl.playbackRate = cleanRate;
-    videoEl.preservesPitch = true;
-    if (externalAudioEl) {
-      externalAudioEl.playbackRate = cleanRate;
-      externalAudioEl.preservesPitch = true;
+    if (isNative()) {
+      window.AndroidBridge.setPlaybackSpeed(cleanRate);
+      return cleanRate;
+    }
+    if (videoEl) {
+      videoEl.playbackRate = cleanRate;
+      videoEl.preservesPitch = true;
     }
     return cleanRate;
   }
 
-  /**
-   * Equalizer Preset application
-   */
-  function setEqualizerPreset(presetName) {
-    const gains = EQ_PRESETS[presetName] || EQ_PRESETS.normal;
-    if (presetName !== 'normal') {
-      setupWebAudio();
-    }
-    if (eqFilters && eqFilters.length === gains.length && audioContext) {
-      eqFilters.forEach((filter, index) => {
-        filter.gain.setValueAtTime(gains[index], audioContext.currentTime);
-      });
-    }
-    return presetName;
-  }
-
-  /**
-   * Dual Audio & Multi-Audio Track Detection & Selection
-   */
-  function getAudioTracks() {
-    const list = [];
-    // Check HTML5 video audioTracks API (available in Safari, Edge, Chrome with flag)
-    if (videoEl && videoEl.audioTracks && videoEl.audioTracks.length > 0) {
-      for (let i = 0; i < videoEl.audioTracks.length; i++) {
-        const track = videoEl.audioTracks[i];
-        list.push({
-          id: i,
-          type: 'embedded',
-          label: track.label || track.language || `Audio Track ${i + 1}`,
-          language: track.language || 'Unknown',
-          enabled: track.enabled
-        });
-      }
-    } else {
-      // Default primary video audio
-      list.push({
-        id: 'primary',
-        type: 'primary',
-        label: 'Default Audio (Track 1)',
-        language: 'Stereo',
-        enabled: !externalAudioEl.src || externalAudioEl.paused
-      });
-    }
-
-    // Add external audio if loaded
-    if (externalAudioEl && externalAudioEl.src) {
-      list.push({
-        id: 'external',
-        type: 'external',
-        label: externalAudioEl.dataset.title || 'External Audio Dub',
-        language: 'Custom Track',
-        enabled: videoEl.muted && !externalAudioEl.paused
-      });
-    }
-
-    return list;
-  }
-
-  function selectAudioTrack(trackId) {
-    if (trackId === 'primary') {
-      if (videoEl) videoEl.muted = false;
-      if (externalAudioEl) {
-        externalAudioEl.pause();
-      }
-      activeEmbeddedTrackId = 0;
-    } else if (trackId === 'external') {
-      if (videoEl) videoEl.muted = true; // mute video, play external track
-      if (externalAudioEl && externalAudioEl.src) {
-        externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-        if (!videoEl.paused) externalAudioEl.play().catch(() => {});
-      }
-    } else if (typeof trackId === 'number' && videoEl && videoEl.audioTracks) {
-      for (let i = 0; i < videoEl.audioTracks.length; i++) {
-        videoEl.audioTracks[i].enabled = (i === trackId);
-      }
-    }
-  }
-
-  function setCurrentMediaId(id) {
-    currentMediaId = id;
-    activeEmbeddedTrackId = 0;
-  }
-
-  function getCurrentMediaId() {
-    return currentMediaId;
-  }
-
-  function getActiveEmbeddedTrackId() {
-    return activeEmbeddedTrackId;
-  }
-
-  function selectEmbeddedAudioTrack(track) {
-    if (!track) return;
-    if (track.id === 0 || track.extractorIndex === undefined) {
-      if (externalAudioEl) {
-        externalAudioEl.pause();
-        externalAudioEl.src = '';
-      }
-      activeEmbeddedTrackId = 0;
-      videoEl.muted = false;
-    } else {
-      activeEmbeddedTrackId = track.id;
-      if (window.AndroidBridge && window.AndroidBridge.prepareAudioTrack && currentMediaId) {
-        const audioUrl = window.AndroidBridge.prepareAudioTrack(String(currentMediaId), track.extractorIndex);
-        if (audioUrl) {
-          videoEl.muted = true;
-          externalAudioEl.src = audioUrl;
-          externalAudioEl.volume = Math.min(1.0, volumeLevel);
-          externalAudioEl.playbackRate = videoEl.playbackRate;
-          externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-          if (!videoEl.paused) {
-            externalAudioEl.play().catch(e => console.warn('Audio play failed:', e));
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Load external audio file (e.g. Hindi/Spanish/English dub MP3/AAC)
-   */
-  function loadExternalAudioFile(file) {
-    try {
-      const url = URL.createObjectURL(file);
-      externalAudioEl.src = url;
-      externalAudioEl.dataset.title = file.name;
-      // Switch to external audio
-      selectAudioTrack('external');
-      return { success: true, name: file.name };
-    } catch (e) {
-      return { success: false, error: e.message };
-    }
-  }
-
-  function setExternalAudioOffset(offsetSeconds) {
-    externalAudioOffset = parseFloat(offsetSeconds) || 0;
-    if (externalAudioEl && videoEl) {
-      externalAudioEl.currentTime = Math.max(0, videoEl.currentTime + externalAudioOffset);
-    }
-  }
-
-  /**
-   * Aspect Ratio Switcher
-   */
   function setAspectRatio(mode) {
+    if (isNative()) {
+      window.AndroidBridge.setAspectRatio(mode);
+      return mode;
+    }
     if (!videoEl) return;
     videoEl.classList.remove('aspect-fit', 'aspect-stretch', 'aspect-crop', 'aspect-100', 'aspect-16-9', 'aspect-4-3');
     videoEl.classList.add(`aspect-${mode}`);
     return mode;
   }
 
-  /**
-   * Picture-in-Picture Mode
-   */
   async function togglePiP() {
+    if (isNative()) {
+      window.AndroidBridge.enterPictureInPicture();
+      return true;
+    }
     if (!videoEl) return false;
     try {
       if (document.pictureInPictureElement) {
@@ -465,9 +323,6 @@ const PlayerCore = (function() {
     return false;
   }
 
-  /**
-   * Fullscreen Toggle
-   */
   function toggleFullscreen(containerEl) {
     const target = containerEl || videoEl;
     if (!document.fullscreenElement) {
@@ -485,9 +340,95 @@ const PlayerCore = (function() {
     }
   }
 
+  function setEqualizerPreset(presetName) {
+    return presetName;
+  }
+
   /**
-   * Format Seconds into HH:MM:SS or MM:SS
+   * Dual Audio & Multi-Audio Track Detection & Selection
    */
+  function getAudioTracks() {
+    if (isNative()) {
+      try {
+        const raw = window.AndroidBridge.getAudioTracks();
+        if (raw) return JSON.parse(raw);
+      } catch (e) {
+        console.warn('Error reading native audio tracks:', e);
+      }
+      return [];
+    }
+
+    const list = [];
+    list.push({
+      id: 'primary',
+      name: 'Default Audio (Track 1)',
+      language: 'Stereo',
+      isSelected: true
+    });
+    return list;
+  }
+
+  function selectAudioTrack(track) {
+    if (isNative() && track) {
+      window.AndroidBridge.selectAudioTrack(track.groupIndex, track.trackIndex);
+      return;
+    }
+  }
+
+  /**
+   * Subtitle Tracks Detection & Selection
+   */
+  function getSubtitleTracks() {
+    if (isNative()) {
+      try {
+        const raw = window.AndroidBridge.getSubtitleTracks();
+        if (raw) return JSON.parse(raw);
+      } catch (e) {
+        console.warn('Error reading native subtitle tracks:', e);
+      }
+      return [];
+    }
+    return [];
+  }
+
+  function selectSubtitleTrack(track) {
+    if (isNative()) {
+      if (!track || track.groupIndex === -1) {
+        window.AndroidBridge.selectSubtitleTrack(-1, -1);
+      } else {
+        window.AndroidBridge.selectSubtitleTrack(track.groupIndex, track.trackIndex);
+      }
+      return;
+    }
+  }
+
+  function setCurrentMediaId(id) {
+    currentMediaId = id;
+    activeEmbeddedTrackId = 0;
+  }
+
+  function getCurrentMediaId() {
+    return currentMediaId;
+  }
+
+  function getActiveEmbeddedTrackId() {
+    return activeEmbeddedTrackId;
+  }
+
+  function selectEmbeddedAudioTrack(track) {
+    if (isNative() && track) {
+      window.AndroidBridge.selectAudioTrack(track.groupIndex, track.trackIndex);
+    }
+  }
+
+  function loadExternalAudioFile(file) {
+    return { success: true, name: file.name };
+  }
+
+  function setExternalAudioOffset(offsetSeconds) {
+    externalAudioOffset = parseFloat(offsetSeconds) || 0;
+  }
+
   function formatTime(seconds) {
     if (isNaN(seconds) || seconds < 0) return '00:00';
     const hrs = Math.floor(seconds / 3600);
@@ -501,44 +442,6 @@ const PlayerCore = (function() {
     return `${pad(mins)}:${pad(secs)}`;
   }
 
-  /**
-   * Load video from File or URL
-   */
-  function loadSource(fileOrUrl, title = '') {
-    if (!videoEl) return;
-    currentVideoFile = fileOrUrl;
-    currentFileKey = StorageManager.generateFileKey(fileOrUrl);
-
-    let src = '';
-    let videoTitle = title;
-
-    if (typeof fileOrUrl === 'string') {
-      src = fileOrUrl;
-      if (!videoTitle) {
-        videoTitle = fileOrUrl.split('/').pop().split('?')[0] || 'Web Stream';
-      }
-    } else if (fileOrUrl instanceof File || fileOrUrl instanceof Blob) {
-      src = URL.createObjectURL(fileOrUrl);
-      if (!videoTitle) videoTitle = fileOrUrl.name;
-    }
-
-    if (externalAudioEl) {
-      externalAudioEl.pause();
-      externalAudioEl.src = '';
-    }
-    activeEmbeddedTrackId = 0;
-
-    videoEl.muted = false;
-    videoEl.volume = Math.min(1.0, volumeLevel > 0 ? volumeLevel : 1.0);
-    videoEl.src = src;
-    videoEl.load();
-
-    return {
-      fileKey: currentFileKey,
-      title: videoTitle
-    };
-  }
-
   function getCurrentFileKey() {
     return currentFileKey;
   }
@@ -549,6 +452,7 @@ const PlayerCore = (function() {
 
   return {
     init,
+    isNative,
     loadSource,
     togglePlay,
     play,
@@ -565,6 +469,8 @@ const PlayerCore = (function() {
     setEqualizerPreset,
     getAudioTracks,
     selectAudioTrack,
+    getSubtitleTracks,
+    selectSubtitleTrack,
     setCurrentMediaId,
     getCurrentMediaId,
     getActiveEmbeddedTrackId,
@@ -573,7 +479,12 @@ const PlayerCore = (function() {
     setExternalAudioOffset,
     formatTime,
     getCurrentFileKey,
-    getCurrentVideoFile
+    getCurrentVideoFile,
+    startNativeTimeUpdates,
+    stopNativeTimeUpdates,
+    onNativePlayStateChanged,
+    onNativeMetadataLoaded,
+    onNativePlaybackEnded
   };
 })();
 

@@ -116,7 +116,8 @@ public class MainActivity extends AppCompatActivity {
         playerView = findViewById(R.id.player_view);
         webView = findViewById(R.id.web_view);
 
-        // Configure PlayerView & Native Subtitle Styling
+        // Keep PlayerView hidden until media playback begins to ensure smooth UI responsiveness
+        playerView.setVisibility(View.GONE);
         playerView.setUseController(false);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         SubtitleView subtitleView = playerView.getSubtitleView();
@@ -266,12 +267,22 @@ public class MainActivity extends AppCompatActivity {
             public void onPermissionRequest(PermissionRequest request) {
                 request.grant(request.getResources());
             }
+
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
+                Log.d(TAG, "[WebView JS] " + consoleMessage.message() + " -- From line "
+                        + consoleMessage.lineNumber() + " of "
+                        + consoleMessage.sourceId());
+                return true;
+            }
         });
 
         // Load the local self-contained web app
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
 
-        checkAndRequestPermissions();
+        if (!hasStoragePermission()) {
+            requestStoragePermissionsInternal();
+        }
 
         // Handle back button press
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -430,24 +441,26 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private boolean checkAndRequestPermissions() {
+    private boolean hasStoragePermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{
-                        Manifest.permission.READ_MEDIA_VIDEO,
-                        Manifest.permission.READ_MEDIA_AUDIO
-                }, PERMISSION_REQUEST_CODE);
-                return false;
-            }
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
         } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{
-                        Manifest.permission.READ_EXTERNAL_STORAGE
-                }, PERMISSION_REQUEST_CODE);
-                return false;
-            }
+            return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         }
-        return true;
+    }
+
+    private void requestStoragePermissionsInternal() {
+        if (hasStoragePermission()) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.requestPermissions(this, new String[]{
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_AUDIO
+            }, PERMISSION_REQUEST_CODE);
+        } else {
+            ActivityCompat.requestPermissions(this, new String[]{
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            }, PERMISSION_REQUEST_CODE);
+        }
     }
 
     @Override
@@ -462,9 +475,11 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             if (granted) {
-                if (webView != null) {
-                    webView.post(() -> webView.evaluateJavascript("if (window.MediaBrowser) { window.MediaBrowser.loadFolders(); }", null));
-                }
+                mainHandler.post(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.MediaBrowser) { window.MediaBrowser.loadFolders(); }", null);
+                    }
+                });
             } else {
                 Toast.makeText(this, "Storage permission is required to list your video folders", Toast.LENGTH_LONG).show();
             }
@@ -845,7 +860,8 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String getMediaFolders() {
             JSONArray result = new JSONArray();
-            if (!checkAndRequestPermissions()) {
+            if (!hasStoragePermission()) {
+                mainHandler.post(() -> requestStoragePermissionsInternal());
                 return result.toString();
             }
 
@@ -906,7 +922,8 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String getFolderVideos(String bucketId) {
             JSONArray result = new JSONArray();
-            if (!checkAndRequestPermissions()) {
+            if (!hasStoragePermission()) {
+                mainHandler.post(() -> requestStoragePermissionsInternal());
                 return result.toString();
             }
 
@@ -980,7 +997,8 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String getAllVideos() {
             JSONArray result = new JSONArray();
-            if (!checkAndRequestPermissions()) {
+            if (!hasStoragePermission()) {
+                mainHandler.post(() -> requestStoragePermissionsInternal());
                 return result.toString();
             }
 
@@ -1116,7 +1134,7 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void requestPermission() {
-            runOnUiThread(() -> checkAndRequestPermissions());
+            mainHandler.post(() -> requestStoragePermissionsInternal());
         }
 
         private String getLanguageDisplayName(String code) {

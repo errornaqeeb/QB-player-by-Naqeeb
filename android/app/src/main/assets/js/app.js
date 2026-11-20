@@ -3,6 +3,13 @@
  * Connects UI elements, audio settings, subtitles, resume prompts, and event listeners.
  */
 
+window.onerror = function(message, source, lineno, colno, error) {
+  console.error('[QB Player Global Error]', message, 'at', source, lineno + ':' + colno, error);
+};
+window.addEventListener('unhandledrejection', function(event) {
+  console.error('[QB Player Unhandled Rejection]', event.reason);
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements
   const container = document.getElementById('player-container');
@@ -208,7 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('qb:native-metadata', (e) => {
-    durationEl.textContent = PlayerCore.formatTime(e.detail.duration);
+    if (totalDurationEl) totalDurationEl.textContent = PlayerCore.formatTime(e.detail.duration);
     checkAndPromptResume();
   });
 
@@ -219,12 +226,12 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('qb:native-timeupdate', (e) => {
     const { currentTime, duration, isPlaying } = e.detail;
     if (!isSeeking) {
-      currentTimeEl.textContent = PlayerCore.formatTime(currentTime);
+      if (currentTimeEl) currentTimeEl.textContent = PlayerCore.formatTime(currentTime);
       if (duration > 0) {
-        durationEl.textContent = PlayerCore.formatTime(duration);
+        if (totalDurationEl) totalDurationEl.textContent = PlayerCore.formatTime(duration);
         const pct = (currentTime / duration) * 100;
-        seekbarProgress.style.width = `${pct}%`;
-        seekbarThumb.style.left = `${pct}%`;
+        if (seekbarProgress) seekbarProgress.style.width = `${pct}%`;
+        if (seekbarHandle) seekbarHandle.style.left = `${pct}%`;
       }
     }
     updatePlayPauseButton(isPlaying);
@@ -627,113 +634,80 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-    // Subtitle Sync Offset
-    const syncValEl = document.getElementById('sub-sync-val');
-    const syncSlider = document.getElementById('sub-sync-slider');
-    const offset = SubtitlesManager.getSyncOffset();
-    syncValEl.textContent = `${offset >= 0 ? '+' : ''}${offset.toFixed(2)}s`;
-    syncSlider.value = offset;
-
-    syncSlider.oninput = (e) => {
-      const val = parseFloat(e.target.value);
-      SubtitlesManager.setSyncOffset(val);
-      syncValEl.textContent = `${val >= 0 ? '+' : ''}${val.toFixed(2)}s`;
-    };
-
-    document.getElementById('btn-sub-sync-minus').onclick = () => {
-      const newOffset = SubtitlesManager.adjustSyncOffset(-0.1);
-      syncSlider.value = newOffset;
-      syncValEl.textContent = `${newOffset >= 0 ? '+' : ''}${newOffset.toFixed(2)}s`;
-    };
-
-    document.getElementById('btn-sub-sync-plus').onclick = () => {
-      const newOffset = SubtitlesManager.adjustSyncOffset(0.1);
-      syncSlider.value = newOffset;
-      syncValEl.textContent = `${newOffset >= 0 ? '+' : ''}${newOffset.toFixed(2)}s`;
-    };
-
-    // Subtitle Size Slider
-    const sizeSlider = document.getElementById('sub-size-slider');
-    const sizeVal = document.getElementById('sub-size-val');
-    sizeSlider.value = SubtitlesManager.styleConfig.fontSize;
-    sizeVal.textContent = `${sizeSlider.value}px`;
-
-    sizeSlider.oninput = (e) => {
-      sizeVal.textContent = `${e.target.value}px`;
-      SubtitlesManager.setFontSize(e.target.value);
-    };
-
-    // Load subtitle file button
-    document.getElementById('btn-load-sub-file').onclick = () => {
-      inputSubFile.click();
-    };
-
-    inputSubFile.onchange = async (e) => {
-      if (e.target.files.length > 0) {
-        const res = await SubtitlesManager.loadFromFile(e.target.files[0]);
-        if (res.success) {
-          populateSubtitleModal();
-          showQuickNotification(`Loaded: ${res.trackName}`);
-        }
-      }
-    };
-  }
-
   // ================= Speed Modal Population =================
   document.querySelectorAll('.speed-option').forEach(btn => {
     btn.onclick = () => {
       const rate = parseFloat(btn.dataset.speed);
       PlayerCore.setPlaybackRate(rate);
-      document.querySelector('.speed-badge').textContent = `${rate}x`;
+      const speedBadge = document.querySelector('.speed-badge');
+      if (speedBadge) speedBadge.textContent = `${rate}x`;
       document.querySelectorAll('.speed-option').forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
-      speedModal.classList.remove('open');
+      if (speedModal) speedModal.classList.remove('open');
       showQuickNotification(`Speed: ${rate}x`);
     };
   });
 
-  // ================= Welcome Screen File Loaders =================
-  document.getElementById('btn-welcome-open-file').addEventListener('click', () => {
-    inputVideoFile.click();
-  });
+  // ================= Welcome Screen File Loaders (Optional) =================
+  const btnWelcomeOpenFile = document.getElementById('btn-welcome-open-file');
+  if (btnWelcomeOpenFile) {
+    btnWelcomeOpenFile.addEventListener('click', () => {
+      if (inputVideoFile) inputVideoFile.click();
+    });
+  }
 
-  document.getElementById('btn-welcome-open-folder').addEventListener('click', () => {
-    inputFolder.click();
-  });
+  const btnWelcomeOpenFolder = document.getElementById('btn-welcome-open-folder');
+  if (btnWelcomeOpenFolder) {
+    btnWelcomeOpenFolder.addEventListener('click', () => {
+      if (inputFolder) inputFolder.click();
+    });
+  }
 
-  document.getElementById('btn-welcome-open-url').addEventListener('click', () => {
-    urlModal.classList.add('open');
-  });
+  const btnWelcomeOpenUrl = document.getElementById('btn-welcome-open-url');
+  if (btnWelcomeOpenUrl) {
+    btnWelcomeOpenUrl.addEventListener('click', () => {
+      if (urlModal) urlModal.classList.add('open');
+    });
+  }
 
-  inputVideoFile.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      PlaylistManager.addFiles(Array.from(e.target.files), true);
-    }
-  });
-
-  inputFolder.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      const videoFiles = Array.from(e.target.files).filter(f =>
-        f.type.startsWith('video/') ||
-        ['mp4', 'mkv', 'webm', 'avi', 'mov', 'ts'].includes(f.name.split('.').pop().toLowerCase())
-      );
-      if (videoFiles.length > 0) {
-        PlaylistManager.addFiles(videoFiles, true);
-      } else {
-        alert('No compatible video files found in the selected folder.');
+  if (inputVideoFile) {
+    inputVideoFile.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        PlaylistManager.addFiles(Array.from(e.target.files), true);
       }
-    }
-  });
+    });
+  }
 
-  document.getElementById('btn-confirm-url').addEventListener('click', () => {
-    const urlInput = document.getElementById('input-stream-url');
-    const url = urlInput.value.trim();
-    if (url) {
-      PlaylistManager.addUrl(url);
-      urlModal.classList.remove('open');
-      urlInput.value = '';
-    }
-  });
+  if (inputFolder) {
+    inputFolder.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        const videoFiles = Array.from(e.target.files).filter(f =>
+          f.type.startsWith('video/') ||
+          ['mp4', 'mkv', 'webm', 'avi', 'mov', 'ts'].includes(f.name.split('.').pop().toLowerCase())
+        );
+        if (videoFiles.length > 0) {
+          PlaylistManager.addFiles(videoFiles, true);
+        } else {
+          alert('No compatible video files found in the selected folder.');
+        }
+      }
+    });
+  }
+
+  const btnConfirmUrl = document.getElementById('btn-confirm-url');
+  if (btnConfirmUrl) {
+    btnConfirmUrl.addEventListener('click', () => {
+      const urlInput = document.getElementById('input-stream-url');
+      if (urlInput) {
+        const url = urlInput.value.trim();
+        if (url) {
+          PlaylistManager.addUrl(url);
+          if (urlModal) urlModal.classList.remove('open');
+          urlInput.value = '';
+        }
+      }
+    });
+  }
 
   // Quick toast notification helper
   function showQuickNotification(msg) {

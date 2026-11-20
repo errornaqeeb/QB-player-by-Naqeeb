@@ -16,7 +16,7 @@ const MediaBrowser = (function() {
   function init() {
     browserEl = document.getElementById('media-browser');
     foldersViewEl = document.getElementById('browser-folders-list');
-    videosViewEl = document.getElementById('browser-videos-list');
+    videosViewEl = document.getElementById('browser-all-videos-list');
     recentViewEl = document.getElementById('browser-recent-list');
 
     setupEvents();
@@ -118,11 +118,31 @@ const MediaBrowser = (function() {
               <div class="empty-icon">📁</div>
               <h3>No Video Folders Found</h3>
               <p>Download or transfer movies to your device, or grant storage permission.</p>
-              <button class="btn-primary" onclick="window.AndroidBridge.requestPermission()" style="margin-top: 14px;">
-                Grant Storage Permission
-              </button>
+              <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px;">
+                <button id="btn-empty-permission" class="btn-primary">
+                  Grant Storage Permission
+                </button>
+                <button id="btn-empty-open-file" class="btn-secondary">
+                  Open Video File
+                </button>
+              </div>
             </div>
           `;
+          const btnPerm = document.getElementById('btn-empty-permission');
+          if (btnPerm) {
+            btnPerm.onclick = () => {
+              if (window.AndroidBridge && window.AndroidBridge.requestPermission) {
+                window.AndroidBridge.requestPermission();
+              }
+            };
+          }
+          const btnOpen = document.getElementById('btn-empty-open-file');
+          if (btnOpen) {
+            btnOpen.onclick = () => {
+              const fileInput = document.getElementById('input-video-file');
+              if (fileInput) fileInput.click();
+            };
+          }
           return;
         }
 

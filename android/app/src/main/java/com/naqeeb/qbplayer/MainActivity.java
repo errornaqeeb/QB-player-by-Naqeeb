@@ -343,6 +343,37 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    public static String getLanguageDisplayName(String code) {
+        if (code == null || code.isEmpty() || "und".equalsIgnoreCase(code)) return "Default";
+        switch (code.toLowerCase(Locale.US)) {
+            case "hin": return "Hindi";
+            case "eng": return "English";
+            case "spa": return "Spanish";
+            case "fra": case "fre": return "French";
+            case "deu": case "ger": return "German";
+            case "ita": return "Italian";
+            case "jpn": return "Japanese";
+            case "kor": return "Korean";
+            case "zho": case "chi": return "Chinese";
+            case "rus": return "Russian";
+            case "ara": return "Arabic";
+            case "tam": return "Tamil";
+            case "tel": return "Telugu";
+            case "urd": return "Urdu";
+            case "ben": return "Bengali";
+            case "pan": return "Punjabi";
+            default:
+                try {
+                    Locale loc = new Locale(code);
+                    String name = loc.getDisplayLanguage(Locale.US);
+                    if (name != null && !name.isEmpty() && !name.equalsIgnoreCase(code)) {
+                        return name;
+                    }
+                } catch (Exception ignored) {}
+                return code.toUpperCase(Locale.US);
+        }
+    }
+
     private void updateCachedTracks(Tracks tracks) {
         if (tracks == null) return;
         try {
@@ -1255,37 +1286,6 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void requestPermission() {
             mainHandler.post(() -> requestStoragePermissionsInternal());
-        }
-
-        private String getLanguageDisplayName(String code) {
-            if (code == null || code.isEmpty() || "und".equalsIgnoreCase(code)) return "Default";
-            switch (code.toLowerCase(Locale.US)) {
-                case "hin": return "Hindi";
-                case "eng": return "English";
-                case "spa": return "Spanish";
-                case "fra": case "fre": return "French";
-                case "deu": case "ger": return "German";
-                case "ita": return "Italian";
-                case "jpn": return "Japanese";
-                case "kor": return "Korean";
-                case "zho": case "chi": return "Chinese";
-                case "rus": return "Russian";
-                case "ara": return "Arabic";
-                case "tam": return "Tamil";
-                case "tel": return "Telugu";
-                case "urd": return "Urdu";
-                case "ben": return "Bengali";
-                case "pan": return "Punjabi";
-                default:
-                    try {
-                        Locale loc = new Locale(code);
-                        String name = loc.getDisplayLanguage(Locale.US);
-                        if (name != null && !name.isEmpty() && !name.equalsIgnoreCase(code)) {
-                            return name;
-                        }
-                    } catch (Exception ignored) {}
-                    return code.toUpperCase(Locale.US);
-            }
         }
 
         private String formatDuration(long millis) {

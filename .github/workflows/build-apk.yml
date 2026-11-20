@@ -39,45 +39,40 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.6-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.7-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.6-Naqeeb.apk
+          path: build-output/QB-Player-v1.7-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.6.0
-          name: "QB Player v1.6.0 by Naqeeb (Folder Navigation, Video Visibility & Dual Audio Fix)"
+          tag_name: v1.7.0
+          name: "QB Player v1.7.0 by Naqeeb (Timeline Slider & Seeking Fix)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.6.0 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.7.0 (Ad-Free Android APK)
 
-            ### 🚀 Complete Video Playback & Dual Audio Fixes:
-            - **100% Fixed Folder Opening**:
-              - Fixed method naming mismatch between JavaScript (`getVideosInFolder`) and Android (`getFolderVideos`), allowing folders to open and show all contained videos immediately upon click.
-            - **100% Fixed Black Screen during Video Playback**:
-              - Resolved WebView alpha transparency overlay bug (`setLayerType(View.LAYER_TYPE_NONE)` and transparent root `<html>`/`<body>`/`#player-container`).
-              - Removed black shutter cover on `PlayerView` with `app:shutter_background_color="@android:color/transparent"`.
-              - Hardware ExoPlayer video now renders visibly with crystal clarity underneath the ad-free controls.
-            - **100% Fixed Dual Audio Track Recognition & Instant Switching**:
-              - Resolved `IllegalStateException` on `player.getCurrentTracks()` caused by cross-thread calls from the `JavaBridge` background thread.
-              - Tracks are now automatically extracted on the UI thread when ExoPlayer loads media and cached safely.
-              - All embedded audio streams (Track 1, Track 2, Hindi, English, 5.1 Surround, etc.) are detected and listed in the Audio modal.
-              - Tapping any audio track switches audio streams instantly in 0ms without restarting or desynchronizing the video.
-            - **Fixed Touch Controls & Gestures**:
-              - Center tap pauses/plays video.
-              - Left/Right edge taps show/hide controls.
-              - Vertical drag controls Brightness & Volume with HW+ 200% boost.
+            ### 🚀 Updates & Slider Timeline Fix:
+            - **100% Fixed Video Timeline Slider / Progress Bar Seeking**:
+              - Tapping or dragging anywhere on the timeline slider now seeks directly and accurately to that exact timestamp instead of jumping back to 0:00.
+              - Connected native ExoPlayer duration and position synchronization seamlessly into `PlayerCore.getDuration()`.
+              - Added smooth pointer capture and responsive scrubber handle for touchscreens on phones and tablets (Oppo Pad).
+            - **Retained All v1.6.0 Functionality**:
+              - Fast folder browsing & opening.
+              - Full hardware-accelerated video rendering (no black screens).
+              - Instant dual audio track selection & switching.
+              - Double-tap left/right 10s skip.
+              - Center tap play/pause, left/right edge controls toggle.
 
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.6-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
+            1. Download `QB-Player-v1.7-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
             2. Open the APK file to update / install.
             3. Enjoy full ad-free video watching!
-          files: build-output/QB-Player-v1.6-Naqeeb.apk
+          files: build-output/QB-Player-v1.7-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

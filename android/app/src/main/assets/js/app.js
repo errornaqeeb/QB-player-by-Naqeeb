@@ -76,6 +76,32 @@ document.addEventListener('DOMContentLoaded', () => {
   // State
   let controlsTimeout = null;
   let isSeeking = false;
+  let currentVideoDuration = 0;
+
+  function getVideoDuration() {
+    if (window.PlayerCore && typeof PlayerCore.getDuration === 'function') {
+      const d = PlayerCore.getDuration();
+      if (d > 0) {
+        currentVideoDuration = d;
+        return d;
+      }
+    }
+    if (window.AndroidBridge && typeof window.AndroidBridge.getDuration === 'function') {
+      try {
+        const d = window.AndroidBridge.getDuration() / 1000;
+        if (d > 0) {
+          currentVideoDuration = d;
+          return d;
+        }
+      } catch (e) {}
+    }
+    if (video && video.duration && !isNaN(video.duration) && video.duration > 0) {
+      currentVideoDuration = video.duration;
+      return video.duration;
+    }
+    return currentVideoDuration || 0;
+  }
+
   let currentAspectIndex = 0;
   const aspectModes = ['fit', 'crop', 'stretch', '16-9', '4-3', '100'];
   const aspectLabels = ['Fit', 'Crop', 'Stretch', '16:9', '4:3', '100%'];
@@ -215,7 +241,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('qb:native-metadata', (e) => {
-    if (totalDurationEl) totalDurationEl.textContent = PlayerCore.formatTime(e.detail.duration);
+    if (e.detail && e.detail.duration > 0) {
+      currentVideoDuration = e.detail.duration;
+    }
+    const dur = getVideoDuration();
+    if (totalDurationEl && dur > 0) totalDurationEl.textContent = PlayerCore.formatTime(dur);
     checkAndPromptResume();
   });
 
@@ -230,11 +260,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.addEventListener('qb:native-timeupdate', (e) => {
     const { currentTime, duration, isPlaying } = e.detail;
+    if (duration > 0) {
+      currentVideoDuration = duration;
+    }
+    const dur = duration > 0 ? duration : getVideoDuration();
     if (!isSeeking) {
       if (currentTimeEl) currentTimeEl.textContent = PlayerCore.formatTime(currentTime);
-      if (duration > 0) {
-        if (totalDurationEl) totalDurationEl.textContent = PlayerCore.formatTime(duration);
-        const pct = (currentTime / duration) * 100;
+      if (dur > 0) {
+        if (totalDurationEl) totalDurationEl.textContent = PlayerCore.formatTime(dur);
+        const pct = (currentTime / dur) * 100;
         if (seekbarProgress) seekbarProgress.style.width = `${pct}%`;
         if (seekbarHandle) seekbarHandle.style.left = `${pct}%`;
       }
@@ -242,8 +276,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePlayPauseButton(isPlaying);
 
     const fileKey = PlayerCore.getCurrentFileKey();
-    if (fileKey && duration > 0) {
-      StorageManager.savePlaybackPosition(fileKey, currentTime, duration);
+    if (fileKey && dur > 0) {
+      StorageManager.savePlaybackPosition(fileKey, currentTime, dur);
     }
   });
 
@@ -270,8 +304,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!fileKey) return;
 
     const saved = StorageManager.getPlaybackPosition(fileKey);
+    const dur = getVideoDuration();
     // Only prompt if saved time is > 5s and video is not completed
-    if (saved && saved.timestamp > 5 && (!saved.completed || saved.timestamp < (video.duration - 15))) {
+    if (saved && saved.timestamp > 5 && (!saved.completed || (dur > 0 && saved.timestamp < (dur - 15)))) {
       const timeStr = PlayerCore.formatTime(saved.timestamp);
       document.getElementById('resume-time-str').textContent = timeStr;
       resumeToast.classList.add('active');
@@ -307,14 +342,22 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ================= Seekbar Scrubber Handling =================
+  let seekDragTarget = 0;
+  let lastSeekThrottleTime = 0;
+
   function updateSeekbarFromEvent(e) {
     const rect = seekbarContainer.getBoundingClientRect();
-    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetTime = pos * (video.duration || 0);
+    if (rect.width <= 0) return 0;
+    const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+    const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const duration = getVideoDuration();
+    const targetTime = pos * duration;
 
     seekbarProgress.style.width = `${pos * 100}%`;
     seekbarHandle.style.left = `${pos * 100}%`;
-    currentTimeEl.textContent = PlayerCore.formatTime(targetTime);
+    if (currentTimeEl) {
+      currentTimeEl.textContent = PlayerCore.formatTime(targetTime);
+    }
 
     return targetTime;
   }
@@ -322,31 +365,49 @@ document.addEventListener('DOMContentLoaded', () => {
   seekbarContainer.addEventListener('pointerdown', (e) => {
     isSeeking = true;
     seekbarContainer.classList.add('dragging');
-    const target = updateSeekbarFromEvent(e);
-    PlayerCore.seek(target);
+    try {
+      seekbarContainer.setPointerCapture(e.pointerId);
+    } catch (ignored) {}
+    seekDragTarget = updateSeekbarFromEvent(e);
+    PlayerCore.seek(seekDragTarget);
+    lastSeekThrottleTime = Date.now();
   });
 
   window.addEventListener('pointermove', (e) => {
     if (isSeeking) {
-      const target = updateSeekbarFromEvent(e);
-      PlayerCore.seek(target);
+      seekDragTarget = updateSeekbarFromEvent(e);
+      const now = Date.now();
+      if (now - lastSeekThrottleTime > 100) {
+        lastSeekThrottleTime = now;
+        PlayerCore.seek(seekDragTarget);
+      }
     }
     // Hover tooltip
     const rect = seekbarContainer.getBoundingClientRect();
-    if (e.clientY >= rect.top - 15 && e.clientY <= rect.bottom + 15) {
-      const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const hoverSec = pos * (video.duration || 0);
+    if (rect.width > 0 && e.clientY >= rect.top - 20 && e.clientY <= rect.bottom + 20) {
+      const clientX = e.clientX !== undefined ? e.clientX : 0;
+      const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const hoverSec = pos * getVideoDuration();
       seekbarTooltip.textContent = PlayerCore.formatTime(hoverSec);
       seekbarTooltip.style.left = `${pos * 100}%`;
     }
   });
 
-  window.addEventListener('pointerup', () => {
+  const onSeekEnd = (e) => {
     if (isSeeking) {
+      if (e && e.pointerId) {
+        try {
+          seekbarContainer.releasePointerCapture(e.pointerId);
+        } catch (ignored) {}
+      }
       isSeeking = false;
       seekbarContainer.classList.remove('dragging');
+      PlayerCore.seek(seekDragTarget);
     }
-  });
+  };
+
+  window.addEventListener('pointerup', onSeekEnd);
+  window.addEventListener('pointercancel', onSeekEnd);
 
   // ================= Button Click Handlers =================
   btnPlayPause.addEventListener('click', () => {

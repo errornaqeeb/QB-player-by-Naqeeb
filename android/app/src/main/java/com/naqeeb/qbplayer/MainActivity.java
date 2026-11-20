@@ -796,7 +796,13 @@ public class MainActivity extends AppCompatActivity {
         public void seekTo(final long positionMs) {
             currentPositionMs = Math.max(0, positionMs);
             mainHandler.post(() -> {
-                if (player != null) player.seekTo(Math.max(0, positionMs));
+                if (player != null) {
+                    long dur = player.getDuration();
+                    long target = Math.max(0, positionMs);
+                    if (dur > 0) target = Math.min(target, dur);
+                    currentPositionMs = target;
+                    player.seekTo(target);
+                }
             });
         }
 

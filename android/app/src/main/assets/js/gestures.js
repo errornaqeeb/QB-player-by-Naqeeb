@@ -92,7 +92,9 @@ const GesturesManager = (function() {
       initialValue = PlayerCore.getVolume();
     } else {
       const vid = document.getElementById('video-element');
-      initialValue = vid ? vid.currentTime : 0;
+      initialValue = (window.PlayerCore && typeof PlayerCore.getCurrentTime === 'function')
+        ? PlayerCore.getCurrentTime()
+        : (vid ? vid.currentTime : 0);
     }
   }
 
@@ -142,7 +144,9 @@ const GesturesManager = (function() {
       } else if (gestureType === 'seek') {
         // Horizontal seek: drag full width = ~90 seconds or 10% of duration
         const vid = document.getElementById('video-element');
-        const duration = vid && vid.duration ? vid.duration : 300;
+        const duration = (window.PlayerCore && typeof PlayerCore.getDuration === 'function')
+          ? (PlayerCore.getDuration() || 300)
+          : (vid && vid.duration ? vid.duration : 300);
         const seekFactor = Math.min(120, Math.max(30, duration * 0.15));
         const deltaSec = (deltaX / rect.width) * seekFactor;
         pendingSeekTarget = Math.max(0, Math.min(duration, initialValue + deltaSec));

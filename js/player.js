@@ -83,6 +83,9 @@ const PlayerCore = (function() {
     }
   }
 
+  let lastNativeDuration = 0;
+  let lastNativeCurrentTime = 0;
+
   function startNativeTimeUpdates() {
     stopNativeTimeUpdates();
     nativeTimeTimer = setInterval(() => {
@@ -93,6 +96,9 @@ const PlayerCore = (function() {
         const isPlaying = window.AndroidBridge.isPlaying();
         const curSec = (curMs || 0) / 1000;
         const durSec = (durMs || 0) / 1000;
+
+        if (durSec > 0) lastNativeDuration = durSec;
+        lastNativeCurrentTime = curSec;
 
         window.dispatchEvent(new CustomEvent('qb:native-timeupdate', {
           detail: { currentTime: curSec, duration: durSec, isPlaying: isPlaying }
@@ -115,6 +121,9 @@ const PlayerCore = (function() {
   }
 
   function onNativeMetadataLoaded(durationMs) {
+    if (durationMs > 0) {
+      lastNativeDuration = durationMs / 1000;
+    }
     window.dispatchEvent(new CustomEvent('qb:native-metadata', { detail: { duration: durationMs / 1000 } }));
   }
 
@@ -214,13 +223,47 @@ const PlayerCore = (function() {
     if (videoEl && !videoEl.paused) videoEl.pause();
   }
 
-  function seek(seconds) {
+  function getDuration() {
     if (isNative()) {
-      window.AndroidBridge.seekTo(Math.round(seconds * 1000));
+      try {
+        const dur = window.AndroidBridge.getDuration();
+        if (dur > 0) {
+          lastNativeDuration = dur / 1000;
+          return lastNativeDuration;
+        }
+      } catch (e) {}
+      if (lastNativeDuration > 0) return lastNativeDuration;
+    }
+    if (videoEl && videoEl.duration && !isNaN(videoEl.duration) && videoEl.duration > 0) {
+      return videoEl.duration;
+    }
+    return lastNativeDuration || 0;
+  }
+
+  function getCurrentTime() {
+    if (isNative()) {
+      try {
+        const pos = window.AndroidBridge.getCurrentPosition();
+        if (pos >= 0) {
+          lastNativeCurrentTime = pos / 1000;
+          return lastNativeCurrentTime;
+        }
+      } catch (e) {}
+      return lastNativeCurrentTime;
+    }
+    return (videoEl && !isNaN(videoEl.currentTime)) ? videoEl.currentTime : lastNativeCurrentTime;
+  }
+
+  function seek(seconds) {
+    const sec = Math.max(0, parseFloat(seconds) || 0);
+    if (isNative()) {
+      lastNativeCurrentTime = sec;
+      window.AndroidBridge.seekTo(Math.round(sec * 1000));
       return;
     }
     if (!videoEl) return;
-    const target = Math.max(0, Math.min(seconds, videoEl.duration || 0));
+    const dur = getDuration();
+    const target = Math.max(0, dur > 0 ? Math.min(sec, dur) : sec);
     videoEl.currentTime = target;
   }
 
@@ -465,6 +508,8 @@ const PlayerCore = (function() {
     pause,
     seek,
     seekDelta,
+    getDuration,
+    getCurrentTime,
     setVolume,
     getVolume,
     toggleMute,

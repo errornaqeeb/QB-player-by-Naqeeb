@@ -223,6 +223,11 @@ document.addEventListener('DOMContentLoaded', () => {
     PlaylistManager.playNext();
   });
 
+  window.addEventListener('qb:native-tracks', () => {
+    if (audioModal && audioModal.classList.contains('open')) populateAudioModal();
+    if (subtitleModal && subtitleModal.classList.contains('open')) populateSubtitleModal();
+  });
+
   window.addEventListener('qb:native-timeupdate', (e) => {
     const { currentTime, duration, isPlaying } = e.detail;
     if (!isSeeking) {

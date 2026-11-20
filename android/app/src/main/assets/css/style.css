@@ -42,20 +42,22 @@ html, body {
 }
 
 /* Native ExoPlayer Android Mode: transparent WebView allowing native hardware video & subtitles to render underneath */
-body.native-exoplayer {
+html.native-exoplayer,
+body.native-exoplayer,
+html.native-exoplayer body,
+.native-exoplayer #player-container {
+  background: transparent !important;
   background-color: transparent !important;
 }
 
-body.native-exoplayer #player-container {
-  background-color: transparent !important;
-}
-
-body.native-exoplayer #video-element {
+.native-exoplayer #video-element {
+  display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;
 }
 
-body.native-exoplayer #subtitle-text {
+.native-exoplayer #subtitles-container,
+.native-exoplayer #subtitles-text {
   display: none !important;
 }
 
@@ -118,9 +120,10 @@ body.native-exoplayer #subtitle-text {
 }
 
 #media-browser.hidden {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .browser-header {

@@ -185,9 +185,11 @@ const MediaBrowser = (function() {
    * Open a specific folder and display its videos
    */
   function openFolder(bucketId, folderName) {
-    if (!window.AndroidBridge || !window.AndroidBridge.getVideosInFolder) return;
+    if (!window.AndroidBridge) return;
+    const fetchVideos = window.AndroidBridge.getFolderVideos || window.AndroidBridge.getVideosInFolder;
+    if (!fetchVideos) return;
     try {
-      const jsonStr = window.AndroidBridge.getVideosInFolder(bucketId);
+      const jsonStr = fetchVideos.call(window.AndroidBridge, String(bucketId));
       currentFolderVideos = JSON.parse(jsonStr || '[]');
       showFolderVideosView(`${folderName} (${currentFolderVideos.length})`);
       renderVideoList(document.getElementById('browser-folder-videos-list'), currentFolderVideos);
@@ -302,6 +304,8 @@ const MediaBrowser = (function() {
   function playSelectedVideo(video) {
     // Hide media browser
     if (browserEl) browserEl.classList.add('hidden');
+    document.documentElement.classList.add('native-exoplayer');
+    document.body.classList.add('native-exoplayer');
 
     // Auto rotate: If video width > height, request landscape on Android
     if (window.AndroidBridge && video.width && video.height) {
@@ -347,6 +351,8 @@ const MediaBrowser = (function() {
     if (window.AndroidBridge && window.AndroidBridge.setOrientation) {
       window.AndroidBridge.setOrientation('sensor');
     }
+    document.documentElement.classList.remove('native-exoplayer');
+    document.body.classList.remove('native-exoplayer');
     if (browserEl) browserEl.classList.remove('hidden');
     loadFolders();
   }

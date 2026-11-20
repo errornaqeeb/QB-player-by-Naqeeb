@@ -95,6 +95,28 @@ public class MainActivity extends AppCompatActivity {
     private boolean userExplicitlyDisabledSubtitles = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    private volatile String cachedAudioTracksJson = "[]";
+    private volatile String cachedSubtitleTracksJson = "[]";
+    private volatile long currentPositionMs = 0;
+    private volatile long durationMs = 0;
+    private volatile boolean isPlayerPlaying = false;
+
+    private final Runnable positionUpdater = new Runnable() {
+        @Override
+        public void run() {
+            if (player != null) {
+                try {
+                    currentPositionMs = player.getCurrentPosition();
+                    durationMs = player.getDuration();
+                    isPlayerPlaying = player.isPlaying();
+                } catch (Exception ignored) {}
+            }
+            if (isPlayerPlaying) {
+                mainHandler.postDelayed(this, 250);
+            }
+        }
+    };
+
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -120,6 +142,7 @@ public class MainActivity extends AppCompatActivity {
         playerView.setVisibility(View.GONE);
         playerView.setUseController(false);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        playerView.setShutterBackgroundColor(Color.TRANSPARENT);
         SubtitleView subtitleView = playerView.getSubtitleView();
         if (subtitleView != null) {
             subtitleView.setUserDefaultStyle();
@@ -146,6 +169,11 @@ public class MainActivity extends AppCompatActivity {
         player.addListener(new Player.Listener() {
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                isPlayerPlaying = isPlaying;
+                if (isPlaying) {
+                    mainHandler.removeCallbacks(positionUpdater);
+                    mainHandler.post(positionUpdater);
+                }
                 mainHandler.post(() -> {
                     if (webView != null) {
                         webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativePlayStateChanged) PlayerCore.onNativePlayStateChanged(" + isPlaying + ");", null);
@@ -156,13 +184,19 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 if (playbackState == Player.STATE_READY) {
-                    final long duration = player.getDuration();
-                    mainHandler.post(() -> {
-                        if (webView != null) {
-                            webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeMetadataLoaded) PlayerCore.onNativeMetadataLoaded(" + duration + ");", null);
-                        }
-                    });
+                    if (player != null) {
+                        final long duration = player.getDuration();
+                        durationMs = duration;
+                        currentPositionMs = player.getCurrentPosition();
+                        updateCachedTracks(player.getCurrentTracks());
+                        mainHandler.post(() -> {
+                            if (webView != null) {
+                                webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeMetadataLoaded) PlayerCore.onNativeMetadataLoaded(" + duration + ");", null);
+                            }
+                        });
+                    }
                 } else if (playbackState == Player.STATE_ENDED) {
+                    isPlayerPlaying = false;
                     mainHandler.post(() -> {
                         if (webView != null) {
                             webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativePlaybackEnded) PlayerCore.onNativePlaybackEnded();", null);
@@ -173,6 +207,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onTracksChanged(@NonNull Tracks tracks) {
+                updateCachedTracks(tracks);
                 // Auto-select first subtitle track if available and not disabled by user
                 if (!userExplicitlyDisabledSubtitles) {
                     boolean hasSelectedText = false;
@@ -197,6 +232,11 @@ public class MainActivity extends AppCompatActivity {
                         mainHandler.post(() -> selectSubtitleTrackInternal(gIdx, 0));
                     }
                 }
+                mainHandler.post(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeTracksChanged) PlayerCore.onNativeTracksChanged();", null);
+                    }
+                });
             }
         });
 
@@ -207,7 +247,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Configure WebView with transparent background for hardware video overlay
         webView.setBackgroundColor(Color.TRANSPARENT);
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        webView.setLayerType(View.LAYER_TYPE_NONE, null);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -301,6 +341,76 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         });
+    }
+
+    private void updateCachedTracks(Tracks tracks) {
+        if (tracks == null) return;
+        try {
+            JSONArray audioArray = new JSONArray();
+            JSONArray subArray = new JSONArray();
+            List<Tracks.Group> groups = tracks.getGroups();
+            int audioCounter = 0;
+            int subCounter = 0;
+
+            for (int g = 0; g < groups.size(); g++) {
+                Tracks.Group group = groups.get(g);
+                int groupType = group.getType();
+
+                if (groupType == C.TRACK_TYPE_AUDIO) {
+                    for (int t = 0; t < group.length; t++) {
+                        Format format = group.getTrackFormat(t);
+                        JSONObject obj = new JSONObject();
+                        obj.put("groupIndex", g);
+                        obj.put("trackIndex", t);
+
+                        String lang = format.language != null ? format.language : "und";
+                        String displayLang = getLanguageDisplayName(lang);
+                        String channelStr = format.channelCount > 2 ? " (5.1 Surround)" : " (Stereo)";
+                        String label = format.label != null && !format.label.isEmpty()
+                                ? format.label
+                                : (displayLang + channelStr);
+                        if ("und".equalsIgnoreCase(displayLang) || label.isEmpty()) {
+                            label = "Audio Track " + (audioCounter + 1) + channelStr;
+                        }
+
+                        obj.put("id", audioCounter++);
+                        obj.put("name", label);
+                        obj.put("language", displayLang);
+                        obj.put("channels", format.channelCount);
+                        obj.put("mimeType", format.sampleMimeType != null ? format.sampleMimeType : "audio");
+                        obj.put("isSelected", group.isTrackSelected(t));
+                        audioArray.put(obj);
+                    }
+                } else if (groupType == C.TRACK_TYPE_TEXT) {
+                    for (int t = 0; t < group.length; t++) {
+                        Format format = group.getTrackFormat(t);
+                        JSONObject obj = new JSONObject();
+                        obj.put("groupIndex", g);
+                        obj.put("trackIndex", t);
+
+                        String lang = format.language != null ? format.language : "und";
+                        String displayLang = getLanguageDisplayName(lang);
+                        String label = format.label != null && !format.label.isEmpty()
+                                ? format.label
+                                : (displayLang + " [Embedded]");
+                        if ("und".equalsIgnoreCase(displayLang) || label.isEmpty()) {
+                            label = "Subtitle " + (subCounter + 1);
+                        }
+
+                        obj.put("id", subCounter++);
+                        obj.put("name", label);
+                        obj.put("language", displayLang);
+                        obj.put("isSelected", group.isTrackSelected(t));
+                        subArray.put(obj);
+                    }
+                }
+            }
+            cachedAudioTracksJson = audioArray.toString();
+            cachedSubtitleTracksJson = subArray.toString();
+            Log.d(TAG, "Cached tracks: " + audioCounter + " audio, " + subCounter + " subtitles");
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating cached tracks", e);
+        }
     }
 
     private void selectSubtitleTrackInternal(int groupIndex, int trackIndex) {
@@ -561,6 +671,10 @@ public class MainActivity extends AppCompatActivity {
             mainHandler.post(() -> {
                 try {
                     userExplicitlyDisabledSubtitles = false;
+                    currentPositionMs = 0;
+                    cachedAudioTracksJson = "[]";
+                    cachedSubtitleTracksJson = "[]";
+
                     Uri mediaUri = null;
                     long mediaId = -1;
                     if (mediaIdStr != null && !mediaIdStr.isEmpty()) {
@@ -579,10 +693,17 @@ public class MainActivity extends AppCompatActivity {
                         attachCompanionSubtitles(builder, mediaId);
                     }
 
-                    playerView.setVisibility(View.VISIBLE);
-                    player.setMediaItem(builder.build());
-                    player.prepare();
-                    player.play();
+                    if (playerView != null) {
+                        playerView.setVisibility(View.VISIBLE);
+                    }
+                    if (player != null) {
+                        player.setMediaItem(builder.build());
+                        player.prepare();
+                        player.play();
+                        isPlayerPlaying = true;
+                        mainHandler.removeCallbacks(positionUpdater);
+                        mainHandler.post(positionUpdater);
+                    }
                 } catch (Exception e) {
                     Log.e(TAG, "Error in playMedia", e);
                 }
@@ -592,49 +713,71 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public boolean togglePlay() {
             final boolean[] playing = new boolean[1];
-            runOnUiThread(() -> {
-                if (player != null) {
-                    if (player.isPlaying()) {
-                        player.pause();
-                        playing[0] = false;
-                    } else {
-                        player.play();
-                        playing[0] = true;
+            try {
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                mainHandler.post(() -> {
+                    try {
+                        if (player != null) {
+                            if (player.isPlaying()) {
+                                player.pause();
+                                isPlayerPlaying = false;
+                                playing[0] = false;
+                            } else {
+                                player.play();
+                                isPlayerPlaying = true;
+                                playing[0] = true;
+                                mainHandler.removeCallbacks(positionUpdater);
+                                mainHandler.post(positionUpdater);
+                            }
+                        }
+                    } finally {
+                        latch.countDown();
                     }
-                }
-            });
+                });
+                latch.await(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (Exception ignored) {}
             return playing[0];
         }
 
         @JavascriptInterface
         public void play() {
-            runOnUiThread(() -> {
-                if (player != null) player.play();
+            mainHandler.post(() -> {
+                if (player != null) {
+                    player.play();
+                    isPlayerPlaying = true;
+                    mainHandler.removeCallbacks(positionUpdater);
+                    mainHandler.post(positionUpdater);
+                }
             });
         }
 
         @JavascriptInterface
         public void pause() {
-            runOnUiThread(() -> {
-                if (player != null) player.pause();
+            mainHandler.post(() -> {
+                if (player != null) {
+                    player.pause();
+                    isPlayerPlaying = false;
+                }
             });
         }
 
         @JavascriptInterface
-        public void seekTo(long positionMs) {
-            runOnUiThread(() -> {
+        public void seekTo(final long positionMs) {
+            currentPositionMs = Math.max(0, positionMs);
+            mainHandler.post(() -> {
                 if (player != null) player.seekTo(Math.max(0, positionMs));
             });
         }
 
         @JavascriptInterface
-        public void seekDelta(long deltaMs) {
-            runOnUiThread(() -> {
+        public void seekDelta(final long deltaMs) {
+            mainHandler.post(() -> {
                 if (player != null) {
                     long cur = player.getCurrentPosition();
                     long dur = player.getDuration();
                     long target = Math.max(0, cur + deltaMs);
                     if (dur > 0) target = Math.min(target, dur);
+                    currentPositionMs = target;
                     player.seekTo(target);
                 }
             });
@@ -642,29 +785,29 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public long getCurrentPosition() {
-            return player != null ? player.getCurrentPosition() : 0;
+            return currentPositionMs;
         }
 
         @JavascriptInterface
         public long getDuration() {
-            return player != null ? player.getDuration() : 0;
+            return durationMs;
         }
 
         @JavascriptInterface
         public boolean isPlaying() {
-            return player != null && player.isPlaying();
+            return isPlayerPlaying;
         }
 
         @JavascriptInterface
         public void setPlaybackSpeed(float speed) {
-            runOnUiThread(() -> {
+            mainHandler.post(() -> {
                 if (player != null) player.setPlaybackParameters(new PlaybackParameters(speed));
             });
         }
 
         @JavascriptInterface
         public void setAspectRatio(String mode) {
-            runOnUiThread(() -> {
+            mainHandler.post(() -> {
                 if (playerView != null) {
                     if ("fit".equals(mode)) {
                         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
@@ -683,7 +826,10 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void stopAndHidePlayer() {
-            runOnUiThread(() -> {
+            mainHandler.post(() -> {
+                mainHandler.removeCallbacks(positionUpdater);
+                isPlayerPlaying = false;
+                currentPositionMs = 0;
                 if (player != null) {
                     player.stop();
                     player.clearMediaItems();
@@ -696,51 +842,29 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public String getAudioTracks() {
-            JSONArray result = new JSONArray();
-            if (player == null) return result.toString();
-            try {
-                Tracks tracks = player.getCurrentTracks();
-                List<Tracks.Group> groups = tracks.getGroups();
-                int trackCounter = 0;
-                for (int g = 0; g < groups.size(); g++) {
-                    Tracks.Group group = groups.get(g);
-                    if (group.getType() == C.TRACK_TYPE_AUDIO) {
-                        for (int t = 0; t < group.length; t++) {
-                            Format format = group.getTrackFormat(t);
-                            JSONObject obj = new JSONObject();
-                            obj.put("groupIndex", g);
-                            obj.put("trackIndex", t);
-
-                            String lang = format.language != null ? format.language : "und";
-                            String displayLang = getLanguageDisplayName(lang);
-                            String channelStr = format.channelCount > 2 ? " (5.1 Surround)" : " (Stereo)";
-                            String label = format.label != null && !format.label.isEmpty()
-                                    ? format.label
-                                    : (displayLang + channelStr);
-                            if ("und".equalsIgnoreCase(displayLang) || label.isEmpty()) {
-                                label = "Audio Track " + (trackCounter + 1) + channelStr;
+            if ("[]".equals(cachedAudioTracksJson) && player != null) {
+                try {
+                    java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    mainHandler.post(() -> {
+                        try {
+                            if (player != null) {
+                                updateCachedTracks(player.getCurrentTracks());
                             }
-
-                            obj.put("id", trackCounter++);
-                            obj.put("name", label);
-                            obj.put("language", displayLang);
-                            obj.put("channels", format.channelCount);
-                            obj.put("mimeType", format.sampleMimeType != null ? format.sampleMimeType : "audio");
-                            obj.put("isSelected", group.isTrackSelected(t));
-                            result.put(obj);
+                        } finally {
+                            latch.countDown();
                         }
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting audio tracks from ExoPlayer", e);
+                    });
+                    latch.await(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (Exception ignored) {}
             }
-            return result.toString();
+            return cachedAudioTracksJson;
         }
 
         @JavascriptInterface
         public void selectAudioTrack(final int groupIndex, final int trackIndex) {
             mainHandler.post(() -> {
                 try {
+                    if (player == null) return;
                     Tracks tracks = player.getCurrentTracks();
                     List<Tracks.Group> groups = tracks.getGroups();
                     if (groupIndex >= 0 && groupIndex < groups.size()) {
@@ -752,6 +876,7 @@ public class MainActivity extends AppCompatActivity {
                                         .setOverrideForType(new TrackSelectionOverride(trackGroup, trackIndex))
                                         .build()
                         );
+                        updateCachedTracks(player.getCurrentTracks());
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error selecting audio track", e);
@@ -761,42 +886,22 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public String getSubtitleTracks() {
-            JSONArray result = new JSONArray();
-            if (player == null) return result.toString();
-            try {
-                Tracks tracks = player.getCurrentTracks();
-                List<Tracks.Group> groups = tracks.getGroups();
-                int subCounter = 0;
-                for (int g = 0; g < groups.size(); g++) {
-                    Tracks.Group group = groups.get(g);
-                    if (group.getType() == C.TRACK_TYPE_TEXT) {
-                        for (int t = 0; t < group.length; t++) {
-                            Format format = group.getTrackFormat(t);
-                            JSONObject obj = new JSONObject();
-                            obj.put("groupIndex", g);
-                            obj.put("trackIndex", t);
-
-                            String lang = format.language != null ? format.language : "und";
-                            String displayLang = getLanguageDisplayName(lang);
-                            String label = format.label != null && !format.label.isEmpty()
-                                    ? format.label
-                                    : (displayLang + " [Embedded]");
-                            if ("und".equalsIgnoreCase(displayLang) || label.isEmpty()) {
-                                label = "Subtitle " + (subCounter + 1);
+            if ("[]".equals(cachedSubtitleTracksJson) && player != null) {
+                try {
+                    java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                    mainHandler.post(() -> {
+                        try {
+                            if (player != null) {
+                                updateCachedTracks(player.getCurrentTracks());
                             }
-
-                            obj.put("id", subCounter++);
-                            obj.put("name", label);
-                            obj.put("language", displayLang);
-                            obj.put("isSelected", group.isTrackSelected(t));
-                            result.put(obj);
+                        } finally {
+                            latch.countDown();
                         }
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting subtitle tracks from ExoPlayer", e);
+                    });
+                    latch.await(300, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (Exception ignored) {}
             }
-            return result.toString();
+            return cachedSubtitleTracksJson;
         }
 
         @JavascriptInterface
@@ -804,6 +909,9 @@ public class MainActivity extends AppCompatActivity {
             mainHandler.post(() -> {
                 try {
                     selectSubtitleTrackInternal(groupIndex, trackIndex);
+                    if (player != null) {
+                        updateCachedTracks(player.getCurrentTracks());
+                    }
                 } catch (Exception e) {
                     Log.e(TAG, "Error selecting subtitle track", e);
                 }
@@ -940,8 +1048,15 @@ public class MainActivity extends AppCompatActivity {
                     MediaStore.Video.Media.DATA
             };
 
-            String selection = MediaStore.Video.Media.BUCKET_ID + " = ?";
-            String[] selectionArgs = new String[]{bucketId};
+            String selection;
+            String[] selectionArgs;
+            if (bucketId == null || bucketId.isEmpty() || "default".equals(bucketId)) {
+                selection = MediaStore.Video.Media.BUCKET_ID + " IS NULL OR " + MediaStore.Video.Media.BUCKET_ID + " = ''";
+                selectionArgs = null;
+            } else {
+                selection = MediaStore.Video.Media.BUCKET_ID + " = ?";
+                selectionArgs = new String[]{bucketId};
+            }
 
             try (Cursor cursor = getContentResolver().query(uri, projection, selection, selectionArgs, MediaStore.Video.Media.DATE_MODIFIED + " DESC")) {
                 if (cursor != null) {
@@ -992,6 +1107,11 @@ public class MainActivity extends AppCompatActivity {
                 Log.e(TAG, "Error querying folder videos", e);
             }
             return result.toString();
+        }
+
+        @JavascriptInterface
+        public String getVideosInFolder(String bucketId) {
+            return getFolderVideos(bucketId);
         }
 
         @JavascriptInterface

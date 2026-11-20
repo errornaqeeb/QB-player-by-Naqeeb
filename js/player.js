@@ -38,6 +38,7 @@ const PlayerCore = (function() {
   function init(videoElement) {
     videoEl = videoElement;
     if (isNative()) {
+      document.documentElement.classList.add('native-exoplayer');
       document.body.classList.add('native-exoplayer');
     }
 
@@ -121,6 +122,10 @@ const PlayerCore = (function() {
     window.dispatchEvent(new CustomEvent('qb:native-ended'));
   }
 
+  function onNativeTracksChanged() {
+    window.dispatchEvent(new CustomEvent('qb:native-tracks'));
+  }
+
   /**
    * Load video from File or URL
    */
@@ -141,6 +146,7 @@ const PlayerCore = (function() {
     }
 
     if (isNative()) {
+      document.documentElement.classList.add('native-exoplayer');
       document.body.classList.add('native-exoplayer');
       const mediaIdStr = currentMediaId ? String(currentMediaId) : '';
       window.AndroidBridge.playMedia(src, mediaIdStr, videoTitle);
@@ -484,7 +490,8 @@ const PlayerCore = (function() {
     stopNativeTimeUpdates,
     onNativePlayStateChanged,
     onNativeMetadataLoaded,
-    onNativePlaybackEnded
+    onNativePlaybackEnded,
+    onNativeTracksChanged
   };
 })();
 

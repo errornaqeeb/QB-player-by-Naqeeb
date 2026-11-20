@@ -39,40 +39,42 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.7-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.8-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.7-Naqeeb.apk
+          path: build-output/QB-Player-v1.8-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.7.0
-          name: "QB Player v1.7.0 by Naqeeb (Timeline Slider & Seeking Fix)"
+          tag_name: v1.8.0
+          name: "QB Player v1.8.0 by Naqeeb (Full MKV/All Formats Seeking & Progress Support)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.7.0 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.8.0 (Ad-Free Android APK)
 
-            ### 🚀 Updates & Slider Timeline Fix:
-            - **100% Fixed Video Timeline Slider / Progress Bar Seeking**:
-              - Tapping or dragging anywhere on the timeline slider now seeks directly and accurately to that exact timestamp instead of jumping back to 0:00.
-              - Connected native ExoPlayer duration and position synchronization seamlessly into `PlayerCore.getDuration()`.
-              - Added smooth pointer capture and responsive scrubber handle for touchscreens on phones and tablets (Oppo Pad).
-            - **Retained All v1.6.0 Functionality**:
-              - Fast folder browsing & opening.
-              - Full hardware-accelerated video rendering (no black screens).
-              - Instant dual audio track selection & switching.
-              - Double-tap left/right 10s skip.
-              - Center tap play/pause, left/right edge controls toggle.
+            ### 🚀 Complete Multi-Format Support (MKV, WebM, MP4, AVI, TS, MOV, etc.):
+            - **100% Fixed MKV & Multi-Format Seeking & Progress Bar**:
+              - Added `DefaultExtractorsFactory` with constant bitrate seeking enabled (`setConstantBitrateSeekingEnabled(true)`).
+              - Configured `SeekParameters.CLOSEST_SYNC` for instant, lag-free keyframe seeking across all container formats.
+              - Implemented dynamic MIME type auto-detection (`video/x-matroska`, `video/webm`, `video/mp2t`, `video/x-msvideo`, etc.) for direct ExoPlayer container mapping.
+              - Added multi-layered fallback duration parsing (`MediaStore` and `MediaMetadataRetriever`) so MKV files without upfront Cues index accurately display progress and allow full slider and double-tap seeking.
+              - Added `onTimelineChanged` listener to capture asynchronous duration resolution in progressive media streams.
+            - **Retained All Previous Features**:
+              - Working folder navigation & video listing.
+              - Full hardware ExoPlayer video rendering (crystal clear, no black screen).
+              - Multi-audio & dual-audio switching (Hindi, English, 5.1 Surround, etc.).
+              - Screen gestures: center tap play/pause, edge tap options toggle, volume & brightness vertical swipe.
+              - Double-tap 10-second skip & smooth timeline scrubber.
 
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.7-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
+            1. Download `QB-Player-v1.8-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
             2. Open the APK file to update / install.
             3. Enjoy full ad-free video watching!
-          files: build-output/QB-Player-v1.7-Naqeeb.apk
+          files: build-output/QB-Player-v1.8-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

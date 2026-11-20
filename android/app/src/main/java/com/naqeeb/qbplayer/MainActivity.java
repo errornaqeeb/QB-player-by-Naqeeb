@@ -12,6 +12,7 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.media.AudioManager;
+import android.media.MediaMetadataRetriever;
 import android.media.audiofx.LoudnessEnhancer;
 import android.net.Uri;
 import android.os.Build;
@@ -49,11 +50,15 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
@@ -107,7 +112,10 @@ public class MainActivity extends AppCompatActivity {
             if (player != null) {
                 try {
                     currentPositionMs = player.getCurrentPosition();
-                    durationMs = player.getDuration();
+                    long d = player.getDuration();
+                    if (d > 0 && d != C.TIME_UNSET) {
+                        durationMs = d;
+                    }
                     isPlayerPlaying = player.isPlaying();
                 } catch (Exception ignored) {}
             }
@@ -159,14 +167,38 @@ public class MainActivity extends AppCompatActivity {
             subtitleView.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.15f);
         }
 
-        // Initialize ExoPlayer
+        // Initialize ExoPlayer with enhanced extractors (MKV, WebM, MP4, TS, AVI, FLV, MOV, etc.)
+        DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory()
+                .setConstantBitrateSeekingEnabled(true);
+        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(this, extractorsFactory);
+
         player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(mediaSourceFactory)
                 .setSeekForwardIncrementMs(10000)
                 .setSeekBackIncrementMs(10000)
                 .build();
+        player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
         playerView.setPlayer(player);
 
         player.addListener(new Player.Listener() {
+            @Override
+            public void onTimelineChanged(@NonNull Timeline timeline, int reason) {
+                if (player != null) {
+                    try {
+                        long d = player.getDuration();
+                        if (d > 0 && d != C.TIME_UNSET) {
+                            durationMs = d;
+                            final long finalDur = d;
+                            mainHandler.post(() -> {
+                                if (webView != null) {
+                                    webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeMetadataLoaded) PlayerCore.onNativeMetadataLoaded(" + finalDur + ");", null);
+                                }
+                            });
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 isPlayerPlaying = isPlaying;
@@ -186,12 +218,15 @@ public class MainActivity extends AppCompatActivity {
                 if (playbackState == Player.STATE_READY) {
                     if (player != null) {
                         final long duration = player.getDuration();
-                        durationMs = duration;
+                        if (duration > 0 && duration != C.TIME_UNSET) {
+                            durationMs = duration;
+                        }
                         currentPositionMs = player.getCurrentPosition();
                         updateCachedTracks(player.getCurrentTracks());
+                        final long finalDur = durationMs;
                         mainHandler.post(() -> {
                             if (webView != null) {
-                                webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeMetadataLoaded) PlayerCore.onNativeMetadataLoaded(" + duration + ");", null);
+                                webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeMetadataLoaded) PlayerCore.onNativeMetadataLoaded(" + finalDur + ");", null);
                             }
                         });
                     }
@@ -372,6 +407,21 @@ public class MainActivity extends AppCompatActivity {
                 } catch (Exception ignored) {}
                 return code.toUpperCase(Locale.US);
         }
+    }
+
+    public static String getMimeTypeFromPath(String path) {
+        if (path == null) return null;
+        String lower = path.toLowerCase(Locale.US);
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+        if (lower.endsWith(".ts") || lower.endsWith(".m2ts")) return "video/mp2t";
+        if (lower.endsWith(".avi")) return "video/x-msvideo";
+        if (lower.endsWith(".mov")) return "video/quicktime";
+        if (lower.endsWith(".flv")) return "video/x-flv";
+        if (lower.endsWith(".3gp") || lower.endsWith(".3gpp")) return "video/3gpp";
+        if (lower.endsWith(".wmv") || lower.endsWith(".asf")) return "video/x-ms-wmv";
+        return null;
     }
 
     private void updateCachedTracks(Tracks tracks) {
@@ -714,12 +764,82 @@ public class MainActivity extends AppCompatActivity {
                             mediaUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
                         } catch (Exception ignored) {}
                     }
+                    if (mediaId == -1 && url != null && url.contains("id=")) {
+                        try {
+                            int idIdx = url.indexOf("id=");
+                            String idStr = url.substring(idIdx + 3);
+                            int ampIdx = idStr.indexOf('&');
+                            if (ampIdx != -1) idStr = idStr.substring(0, ampIdx);
+                            mediaId = Long.parseLong(idStr);
+                            mediaUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+                        } catch (Exception ignored) {}
+                    }
                     if (mediaUri == null && url != null && !url.isEmpty()) {
                         mediaUri = Uri.parse(url);
                     }
                     if (mediaUri == null) return;
 
+                    long fallbackDuration = 0;
+                    String detectedMime = null;
+                    String filePath = null;
+
+                    if (mediaId != -1) {
+                        try (Cursor c = getContentResolver().query(
+                                ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId),
+                                new String[]{
+                                        MediaStore.Video.Media.DURATION,
+                                        MediaStore.Video.Media.DATA,
+                                        MediaStore.Video.Media.DISPLAY_NAME,
+                                        MediaStore.Video.Media.MIME_TYPE
+                                },
+                                null, null, null)) {
+                            if (c != null && c.moveToFirst()) {
+                                int durCol = c.getColumnIndex(MediaStore.Video.Media.DURATION);
+                                int dataCol = c.getColumnIndex(MediaStore.Video.Media.DATA);
+                                int nameCol = c.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME);
+                                int mimeCol = c.getColumnIndex(MediaStore.Video.Media.MIME_TYPE);
+                                if (durCol != -1) fallbackDuration = c.getLong(durCol);
+                                if (dataCol != -1) filePath = c.getString(dataCol);
+                                if (nameCol != -1 && (filePath == null || filePath.isEmpty())) filePath = c.getString(nameCol);
+                                if (mimeCol != -1) detectedMime = c.getString(mimeCol);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+
+                    if (filePath == null && url != null) {
+                        filePath = url;
+                    }
+
+                    if (detectedMime == null || detectedMime.isEmpty() || "application/octet-stream".equals(detectedMime)) {
+                        detectedMime = getMimeTypeFromPath(filePath);
+                    }
+
+                    if (fallbackDuration <= 0) {
+                        try {
+                            MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                            mmr.setDataSource(MainActivity.this, mediaUri);
+                            String durStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                            if (durStr != null) {
+                                fallbackDuration = Long.parseLong(durStr);
+                            }
+                            mmr.release();
+                        } catch (Exception ignored) {}
+                    }
+
+                    if (fallbackDuration > 0) {
+                        durationMs = fallbackDuration;
+                        final long initDur = fallbackDuration;
+                        mainHandler.post(() -> {
+                            if (webView != null) {
+                                webView.evaluateJavascript("if (window.PlayerCore && window.PlayerCore.onNativeMetadataLoaded) PlayerCore.onNativeMetadataLoaded(" + initDur + ");", null);
+                            }
+                        });
+                    }
+
                     MediaItem.Builder builder = new MediaItem.Builder().setUri(mediaUri);
+                    if (detectedMime != null) {
+                        builder.setMimeType(detectedMime);
+                    }
                     if (mediaId != -1) {
                         attachCompanionSubtitles(builder, mediaId);
                     }
@@ -798,6 +918,9 @@ public class MainActivity extends AppCompatActivity {
             mainHandler.post(() -> {
                 if (player != null) {
                     long dur = player.getDuration();
+                    if (dur <= 0 || dur == C.TIME_UNSET) {
+                        dur = durationMs;
+                    }
                     long target = Math.max(0, positionMs);
                     if (dur > 0) target = Math.min(target, dur);
                     currentPositionMs = target;
@@ -811,7 +934,11 @@ public class MainActivity extends AppCompatActivity {
             mainHandler.post(() -> {
                 if (player != null) {
                     long cur = player.getCurrentPosition();
+                    if (cur < 0) cur = currentPositionMs;
                     long dur = player.getDuration();
+                    if (dur <= 0 || dur == C.TIME_UNSET) {
+                        dur = durationMs;
+                    }
                     long target = Math.max(0, cur + deltaMs);
                     if (dur > 0) target = Math.min(target, dur);
                     currentPositionMs = target;
@@ -827,7 +954,19 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public long getDuration() {
-            return durationMs;
+            if (durationMs > 0 && durationMs != C.TIME_UNSET) {
+                return durationMs;
+            }
+            if (player != null) {
+                try {
+                    long d = player.getDuration();
+                    if (d > 0 && d != C.TIME_UNSET) {
+                        durationMs = d;
+                        return d;
+                    }
+                } catch (Exception ignored) {}
+            }
+            return durationMs > 0 ? durationMs : 0;
         }
 
         @JavascriptInterface
@@ -1434,6 +1573,15 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     String mimeType = getContentResolver().getType(contentUri);
+                    if (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType)) {
+                        String dataPath = null;
+                        try (Cursor c = getContentResolver().query(contentUri, new String[]{MediaStore.Video.Media.DATA}, null, null, null)) {
+                            if (c != null && c.moveToFirst()) {
+                                dataPath = c.getString(0);
+                            }
+                        } catch (Exception ignored) {}
+                        mimeType = getMimeTypeFromPath(dataPath);
+                    }
                     if (mimeType == null || mimeType.isEmpty()) {
                         mimeType = "video/mp4";
                     }

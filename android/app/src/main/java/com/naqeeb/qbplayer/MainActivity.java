@@ -8,7 +8,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.content.res.AssetFileDescriptor;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -57,9 +56,6 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
-import androidx.media3.datasource.BaseDataSource;
-import androidx.media3.datasource.DataSource;
-import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.SeekParameters;
@@ -75,11 +71,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.channels.FileChannel;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -177,14 +171,12 @@ public class MainActivity extends AppCompatActivity {
             subtitleView.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.15f);
         }
 
-        // Initialize ExoPlayer with enhanced extractors and SeekableContentDataSource (MKV, WebM, MP4, TS, AVI, FLV, MOV, etc.)
+        // Initialize ExoPlayer with enhanced extractors for all formats (MKV, WebM, MP4, TS, AVI, FLV, MOV, etc.)
+        // Uses DefaultDataSource which supports HTTP (for local server), content://, and file:// URIs
         DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true);
-        DataSource.Factory dataSourceFactory = () -> {
-            DefaultDataSource defaultDataSource = new DefaultDataSource.Factory(MainActivity.this).createDataSource();
-            return new SeekableContentDataSource(MainActivity.this, defaultDataSource);
-        };
-        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory);
+        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(
+                new DefaultDataSource.Factory(this), extractorsFactory);
 
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -831,24 +823,36 @@ public class MainActivity extends AppCompatActivity {
                         detectedMime = getMimeTypeFromPath(filePath);
                     }
 
-                    // Prefer direct file URI for instant hardware seeking and Matroska/WebM Cues indexing
-                    if (filePath != null) {
-                        try {
-                            File f = new File(filePath);
-                            if (f.exists() && f.canRead()) {
-                                mediaUri = Uri.fromFile(f);
-                                Log.d(TAG, "Using direct file URI for hardware seeking: " + mediaUri);
-                            }
-                        } catch (Exception ignored) {}
+                    // Use local HTTP server URL for playback.
+                    // The local server provides proper Content-Length and HTTP Range support,
+                    // which is CRITICAL for MatroskaExtractor to seek to end of MKV files
+                    // and read the Cues index for building a proper SeekMap.
+                    // content:// URIs don't reliably report file length, causing MKV seeking to break.
+                    if (mediaId != -1) {
+                        String ext = "";
+                        if (filePath != null && filePath.contains(".")) {
+                            ext = filePath.substring(filePath.lastIndexOf('.'));
+                        } else if (detectedMime != null) {
+                            if ("video/x-matroska".equals(detectedMime)) ext = ".mkv";
+                            else if ("video/mp4".equals(detectedMime)) ext = ".mp4";
+                            else if ("video/webm".equals(detectedMime)) ext = ".webm";
+                        }
+                        mediaUri = Uri.parse("http://127.0.0.1:" + serverPort + "/video/stream" + ext + "?id=" + mediaId);
+                        Log.d(TAG, "Using HTTP server URI for seekable playback: " + mediaUri);
                     }
 
                     if (fallbackDuration <= 0) {
                         try {
                             MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+                            // Always use content:// URI or file path for metadata retrieval
+                            // (not the HTTP server URL which may not work with MMR)
+                            Uri metadataUri = (mediaId != -1)
+                                    ? ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId)
+                                    : (filePath != null ? Uri.fromFile(new File(filePath)) : mediaUri);
                             if (filePath != null && new File(filePath).canRead()) {
                                 mmr.setDataSource(filePath);
                             } else {
-                                mmr.setDataSource(MainActivity.this, mediaUri);
+                                mmr.setDataSource(MainActivity.this, metadataUri);
                             }
                             String durStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
                             if (durStr != null) {
@@ -1490,147 +1494,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Seekable Content DataSource for Android ContentResolver (Fixes MKV/WebM Cues)
-    // =========================================================================
-    public static class SeekableContentDataSource extends BaseDataSource {
-        private final Context context;
-        private final DataSource fallbackDataSource;
-        private AssetFileDescriptor afd;
-        private FileInputStream inputStream;
-        private FileChannel fileChannel;
-        private Uri uri;
-        private long bytesRemaining;
-        private boolean isOpened = false;
-        private boolean usingFallback = false;
-
-        public SeekableContentDataSource(Context context, DataSource fallbackDataSource) {
-            super(/* isNetwork= */ false);
-            this.context = context.getApplicationContext();
-            this.fallbackDataSource = fallbackDataSource;
-        }
-
-        @Override
-        public long open(DataSpec dataSpec) throws IOException {
-            this.uri = dataSpec.uri;
-            usingFallback = false;
-
-            if (uri != null && "content".equalsIgnoreCase(uri.getScheme())) {
-                try {
-                    transferInitializing(dataSpec);
-                    afd = context.getContentResolver().openAssetFileDescriptor(uri, "r");
-                    if (afd != null) {
-                        FileDescriptor fd = afd.getFileDescriptor();
-                        inputStream = new FileInputStream(fd);
-                        fileChannel = inputStream.getChannel();
-
-                        long startOffset = afd.getStartOffset();
-                        long totalLength = afd.getLength();
-                        if (totalLength == AssetFileDescriptor.UNKNOWN_LENGTH || totalLength <= 0) {
-                            ParcelFileDescriptor pfd = afd.getParcelFileDescriptor();
-                            if (pfd != null) {
-                                long statSize = pfd.getStatSize();
-                                if (statSize > 0) totalLength = statSize;
-                            }
-                        }
-                        if ((totalLength == AssetFileDescriptor.UNKNOWN_LENGTH || totalLength <= 0) && fileChannel != null) {
-                            try {
-                                long chSize = fileChannel.size();
-                                if (chSize > 0) totalLength = chSize;
-                            } catch (Exception ignored) {}
-                        }
-
-                        long targetPosition = startOffset + dataSpec.position;
-                        if (targetPosition > 0 && fileChannel != null) {
-                            fileChannel.position(targetPosition);
-                        }
-
-                        if (dataSpec.length != C.LENGTH_UNSET) {
-                            bytesRemaining = dataSpec.length;
-                        } else if (totalLength > 0 && totalLength != AssetFileDescriptor.UNKNOWN_LENGTH) {
-                            bytesRemaining = Math.max(0, totalLength - dataSpec.position);
-                        } else {
-                            bytesRemaining = C.LENGTH_UNSET;
-                        }
-
-                        isOpened = true;
-                        transferStarted(dataSpec);
-                        return bytesRemaining;
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "SeekableContentDataSource fallback due to: " + e.getMessage());
-                    cleanup();
-                }
-            }
-
-            usingFallback = true;
-            return fallbackDataSource.open(dataSpec);
-        }
-
-        @Override
-        public int read(@NonNull byte[] buffer, int offset, int length) throws IOException {
-            if (usingFallback) {
-                return fallbackDataSource.read(buffer, offset, length);
-            }
-            if (length == 0) return 0;
-            if (bytesRemaining == 0) return C.RESULT_END_OF_INPUT;
-
-            int bytesToRead = length;
-            if (bytesRemaining != C.LENGTH_UNSET) {
-                bytesToRead = (int) Math.min(bytesRemaining, length);
-            }
-
-            int read = inputStream != null ? inputStream.read(buffer, offset, bytesToRead) : -1;
-            if (read == -1) {
-                return C.RESULT_END_OF_INPUT;
-            }
-
-            if (bytesRemaining != C.LENGTH_UNSET) {
-                bytesRemaining -= read;
-            }
-            bytesTransferred(read);
-            return read;
-        }
-
-        @Nullable
-        @Override
-        public Uri getUri() {
-            return usingFallback ? fallbackDataSource.getUri() : uri;
-        }
-
-        @NonNull
-        @Override
-        public Map<String, List<String>> getResponseHeaders() {
-            return usingFallback ? fallbackDataSource.getResponseHeaders() : super.getResponseHeaders();
-        }
-
-        @Override
-        public void close() throws IOException {
-            if (usingFallback) {
-                fallbackDataSource.close();
-                usingFallback = false;
-            }
-            cleanup();
-        }
-
-        private void cleanup() {
-            uri = null;
-            if (isOpened) {
-                isOpened = false;
-                try {
-                    if (inputStream != null) inputStream.close();
-                } catch (Exception ignored) {}
-                try {
-                    if (afd != null) afd.close();
-                } catch (Exception ignored) {}
-                inputStream = null;
-                fileChannel = null;
-                afd = null;
-                transferEnded();
-            }
-        }
-    }
-
-    // =========================================================================
     // Local Lightweight HTTP Server with Range Support for Fallback Streaming
     // =========================================================================
     private class LocalVideoServer {
@@ -1746,13 +1609,32 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     String mimeType = getContentResolver().getType(contentUri);
-                    if (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType)) {
-                        String dataPath = null;
-                        try (Cursor c = getContentResolver().query(contentUri, new String[]{MediaStore.Video.Media.DATA}, null, null, null)) {
-                            if (c != null && c.moveToFirst()) {
-                                dataPath = c.getString(0);
+                    String dataPath = null;
+                    long mediaStoreSize = -1;
+                    try (Cursor c = getContentResolver().query(contentUri, new String[]{
+                            MediaStore.Video.Media.DATA,
+                            MediaStore.Video.Media.DISPLAY_NAME,
+                            MediaStore.Video.Media.MIME_TYPE,
+                            MediaStore.Video.Media.SIZE
+                    }, null, null, null)) {
+                        if (c != null && c.moveToFirst()) {
+                            int dataCol = c.getColumnIndex(MediaStore.Video.Media.DATA);
+                            int nameCol = c.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME);
+                            int mimeCol = c.getColumnIndex(MediaStore.Video.Media.MIME_TYPE);
+                            int sizeCol = c.getColumnIndex(MediaStore.Video.Media.SIZE);
+
+                            if (dataCol != -1) dataPath = c.getString(dataCol);
+                            if (dataPath == null && nameCol != -1) dataPath = c.getString(nameCol);
+                            if (mimeCol != -1 && (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType))) {
+                                mimeType = c.getString(mimeCol);
                             }
-                        } catch (Exception ignored) {}
+                            if (sizeCol != -1) {
+                                mediaStoreSize = c.getLong(sizeCol);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+
+                    if (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType)) {
                         mimeType = getMimeTypeFromPath(dataPath);
                     }
                     if (mimeType == null || mimeType.isEmpty()) {
@@ -1760,22 +1642,49 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     long fileLength = pfd.getStatSize();
+                    if (fileLength <= 0) {
+                        try (FileInputStream testFis = new FileInputStream(pfd.getFileDescriptor())) {
+                            fileLength = testFis.getChannel().size();
+                        } catch (Exception ignored) {}
+                    }
+                    if (fileLength <= 0 && mediaStoreSize > 0) {
+                        fileLength = mediaStoreSize;
+                    }
+
                     long start = 0;
-                    long end = fileLength - 1;
+                    long end = (fileLength > 0) ? (fileLength - 1) : Long.MAX_VALUE;
 
                     if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                        Pattern pattern = Pattern.compile("bytes=(\\d+)-(\\d*)");
-                        Matcher matcher = pattern.matcher(rangeHeader);
-                        if (matcher.find()) {
-                            start = Long.parseLong(matcher.group(1));
-                            String endStr = matcher.group(2);
-                            if (endStr != null && !endStr.isEmpty()) {
-                                end = Long.parseLong(endStr);
+                        String rangeVal = rangeHeader.substring(6).trim();
+                        if (rangeVal.startsWith("-")) {
+                            // Suffix range: bytes=-500 (last 500 bytes of file)
+                            try {
+                                long suffix = Long.parseLong(rangeVal.substring(1).trim());
+                                if (fileLength > 0) {
+                                    start = Math.max(0, fileLength - suffix);
+                                    end = fileLength - 1;
+                                }
+                            } catch (Exception ignored) {}
+                        } else {
+                            int dash = rangeVal.indexOf('-');
+                            if (dash != -1) {
+                                try {
+                                    start = Long.parseLong(rangeVal.substring(0, dash).trim());
+                                    String endPart = rangeVal.substring(dash + 1).trim();
+                                    if (!endPart.isEmpty()) {
+                                        long parsedEnd = Long.parseLong(endPart);
+                                        if (fileLength > 0) {
+                                            end = Math.min(parsedEnd, fileLength - 1);
+                                        } else {
+                                            end = parsedEnd;
+                                        }
+                                    }
+                                } catch (Exception ignored) {}
                             }
                         }
                     }
 
-                    if (start >= fileLength) {
+                    if (fileLength > 0 && start >= fileLength) {
                         OutputStream out = socket.getOutputStream();
                         String response = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + fileLength + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
                         out.write(response.getBytes());
@@ -1785,18 +1694,20 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    long contentLength = (end - start) + 1;
+                    long contentLength = (fileLength > 0) ? ((end - start) + 1) : 0;
                     OutputStream out = socket.getOutputStream();
 
                     StringBuilder header = new StringBuilder();
                     if (rangeHeader != null) {
                         header.append("HTTP/1.1 206 Partial Content\r\n");
-                        header.append("Content-Range: bytes ").append(start).append("-").append(end).append("/").append(fileLength).append("\r\n");
+                        header.append("Content-Range: bytes ").append(start).append("-").append(end).append("/").append(fileLength > 0 ? String.valueOf(fileLength) : "*").append("\r\n");
                     } else {
                         header.append("HTTP/1.1 200 OK\r\n");
                     }
                     header.append("Content-Type: ").append(mimeType).append("\r\n");
-                    header.append("Content-Length: ").append(contentLength).append("\r\n");
+                    if (contentLength > 0) {
+                        header.append("Content-Length: ").append(contentLength).append("\r\n");
+                    }
                     header.append("Accept-Ranges: bytes\r\n");
                     header.append("Access-Control-Allow-Origin: *\r\n");
                     header.append("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n");

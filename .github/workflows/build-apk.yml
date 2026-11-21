@@ -39,42 +39,42 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.8-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.9-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.8-Naqeeb.apk
+          path: build-output/QB-Player-v1.9-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.8.0
-          name: "QB Player v1.8.0 by Naqeeb (Full MKV/All Formats Seeking & Progress Support)"
+          tag_name: v1.9.0
+          name: "QB Player v1.9.0 by Naqeeb (Full MKV Hardware Seeking & Timeline Fix)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.8.0 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.9.0 (Ad-Free Android APK)
 
-            ### 🚀 Complete Multi-Format Support (MKV, WebM, MP4, AVI, TS, MOV, etc.):
-            - **100% Fixed MKV & Multi-Format Seeking & Progress Bar**:
-              - Added `DefaultExtractorsFactory` with constant bitrate seeking enabled (`setConstantBitrateSeekingEnabled(true)`).
-              - Configured `SeekParameters.CLOSEST_SYNC` for instant, lag-free keyframe seeking across all container formats.
-              - Implemented dynamic MIME type auto-detection (`video/x-matroska`, `video/webm`, `video/mp2t`, `video/x-msvideo`, etc.) for direct ExoPlayer container mapping.
-              - Added multi-layered fallback duration parsing (`MediaStore` and `MediaMetadataRetriever`) so MKV files without upfront Cues index accurately display progress and allow full slider and double-tap seeking.
-              - Added `onTimelineChanged` listener to capture asynchronous duration resolution in progressive media streams.
-            - **Retained All Previous Features**:
-              - Working folder navigation & video listing.
-              - Full hardware ExoPlayer video rendering (crystal clear, no black screen).
-              - Multi-audio & dual-audio switching (Hindi, English, 5.1 Surround, etc.).
-              - Screen gestures: center tap play/pause, edge tap options toggle, volume & brightness vertical swipe.
-              - Double-tap 10-second skip & smooth timeline scrubber.
+            ### 🚀 Fixed MKV Seeking (Double-Tap 10s & Timeline Scrubber):
+            - **100% Fixed MKV / WebM Seeking from Snapping to Beginning (0:00)**:
+              - Direct File URI resolution (`Uri.fromFile`) allows ExoPlayer to read the Cues index located at the end of the MKV file directly via fast kernel random access.
+              - Implemented custom `SeekableContentDataSource` that resolves true file size (`statSize` / `channel.size()`) and enables arbitrary byte channel positioning for `content://` MediaStore URIs.
+              - Enabled `android:requestLegacyExternalStorage="true"` and `MANAGE_EXTERNAL_STORAGE` permission for full storage access.
+              - Multi-tap double-tap accumulator prevents stale position resets during rapid seeking.
+            - **Retained All Core MX Player Features**:
+              - Instant folder browsing & video playback.
+              - Crystal clear hardware video rendering (no black screens).
+              - Multi-audio & dual-audio switching (Hindi, English, etc.).
+              - Center tap play/pause, edge tap controls toggle.
+              - Volume & brightness swipe gestures.
+              - 100% ad-free experience.
 
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.8-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
+            1. Download `QB-Player-v1.9-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
             2. Open the APK file to update / install.
             3. Enjoy full ad-free video watching!
-          files: build-output/QB-Player-v1.8-Naqeeb.apk
+          files: build-output/QB-Player-v1.9-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -17,6 +17,7 @@ import android.media.audiofx.LoudnessEnhancer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -55,6 +56,10 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
+import androidx.media3.datasource.BaseDataSource;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -69,17 +74,21 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.channels.FileChannel;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -167,10 +176,14 @@ public class MainActivity extends AppCompatActivity {
             subtitleView.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.15f);
         }
 
-        // Initialize ExoPlayer with enhanced extractors (MKV, WebM, MP4, TS, AVI, FLV, MOV, etc.)
+        // Initialize ExoPlayer with enhanced extractors and SeekableContentDataSource (MKV, WebM, MP4, TS, AVI, FLV, MOV, etc.)
         DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true);
-        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(this, extractorsFactory);
+        DataSource.Factory dataSourceFactory = () -> {
+            DefaultDataSource defaultDataSource = new DefaultDataSource.Factory(MainActivity.this).createDataSource();
+            return new SeekableContentDataSource(MainActivity.this, defaultDataSource);
+        };
+        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory);
 
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -633,6 +646,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean hasStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            return true;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
         } else {
@@ -814,10 +830,25 @@ public class MainActivity extends AppCompatActivity {
                         detectedMime = getMimeTypeFromPath(filePath);
                     }
 
+                    // Prefer direct file URI for instant hardware seeking and Matroska/WebM Cues indexing
+                    if (filePath != null) {
+                        try {
+                            File f = new File(filePath);
+                            if (f.exists() && f.canRead()) {
+                                mediaUri = Uri.fromFile(f);
+                                Log.d(TAG, "Using direct file URI for hardware seeking: " + mediaUri);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+
                     if (fallbackDuration <= 0) {
                         try {
                             MediaMetadataRetriever mmr = new MediaMetadataRetriever();
-                            mmr.setDataSource(MainActivity.this, mediaUri);
+                            if (filePath != null && new File(filePath).canRead()) {
+                                mmr.setDataSource(filePath);
+                            } else {
+                                mmr.setDataSource(MainActivity.this, mediaUri);
+                            }
                             String durStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
                             if (durStr != null) {
                                 fallbackDuration = Long.parseLong(durStr);
@@ -933,8 +964,8 @@ public class MainActivity extends AppCompatActivity {
         public void seekDelta(final long deltaMs) {
             mainHandler.post(() -> {
                 if (player != null) {
-                    long cur = player.getCurrentPosition();
-                    if (cur < 0) cur = currentPositionMs;
+                    long cur = currentPositionMs > 0 ? currentPositionMs : player.getCurrentPosition();
+                    if (cur < 0) cur = 0;
                     long dur = player.getDuration();
                     if (dur <= 0 || dur == C.TIME_UNSET) {
                         dur = durationMs;
@@ -1453,6 +1484,147 @@ public class MainActivity extends AppCompatActivity {
                 return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0));
             } else {
                 return String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+            }
+        }
+    }
+
+    // =========================================================================
+    // Seekable Content DataSource for Android ContentResolver (Fixes MKV/WebM Cues)
+    // =========================================================================
+    public static class SeekableContentDataSource extends BaseDataSource {
+        private final Context context;
+        private final DataSource fallbackDataSource;
+        private AssetFileDescriptor afd;
+        private FileInputStream inputStream;
+        private FileChannel fileChannel;
+        private Uri uri;
+        private long bytesRemaining;
+        private boolean isOpened = false;
+        private boolean usingFallback = false;
+
+        public SeekableContentDataSource(Context context, DataSource fallbackDataSource) {
+            super(/* isNetwork= */ false);
+            this.context = context.getApplicationContext();
+            this.fallbackDataSource = fallbackDataSource;
+        }
+
+        @Override
+        public long open(DataSpec dataSpec) throws IOException {
+            this.uri = dataSpec.uri;
+            usingFallback = false;
+
+            if (uri != null && "content".equalsIgnoreCase(uri.getScheme())) {
+                try {
+                    transferInitializing(dataSpec);
+                    afd = context.getContentResolver().openAssetFileDescriptor(uri, "r");
+                    if (afd != null) {
+                        FileDescriptor fd = afd.getFileDescriptor();
+                        inputStream = new FileInputStream(fd);
+                        fileChannel = inputStream.getChannel();
+
+                        long startOffset = afd.getStartOffset();
+                        long totalLength = afd.getLength();
+                        if (totalLength == AssetFileDescriptor.UNKNOWN_LENGTH || totalLength <= 0) {
+                            ParcelFileDescriptor pfd = afd.getParcelFileDescriptor();
+                            if (pfd != null) {
+                                long statSize = pfd.getStatSize();
+                                if (statSize > 0) totalLength = statSize;
+                            }
+                        }
+                        if ((totalLength == AssetFileDescriptor.UNKNOWN_LENGTH || totalLength <= 0) && fileChannel != null) {
+                            try {
+                                long chSize = fileChannel.size();
+                                if (chSize > 0) totalLength = chSize;
+                            } catch (Exception ignored) {}
+                        }
+
+                        long targetPosition = startOffset + dataSpec.position;
+                        if (targetPosition > 0 && fileChannel != null) {
+                            fileChannel.position(targetPosition);
+                        }
+
+                        if (dataSpec.length != C.LENGTH_UNSET) {
+                            bytesRemaining = dataSpec.length;
+                        } else if (totalLength > 0 && totalLength != AssetFileDescriptor.UNKNOWN_LENGTH) {
+                            bytesRemaining = Math.max(0, totalLength - dataSpec.position);
+                        } else {
+                            bytesRemaining = C.LENGTH_UNSET;
+                        }
+
+                        isOpened = true;
+                        transferStarted(dataSpec);
+                        return bytesRemaining;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "SeekableContentDataSource fallback due to: " + e.getMessage());
+                    cleanup();
+                }
+            }
+
+            usingFallback = true;
+            return fallbackDataSource.open(dataSpec);
+        }
+
+        @Override
+        public int read(@NonNull byte[] buffer, int offset, int length) throws IOException {
+            if (usingFallback) {
+                return fallbackDataSource.read(buffer, offset, length);
+            }
+            if (length == 0) return 0;
+            if (bytesRemaining == 0) return C.RESULT_END_OF_INPUT;
+
+            int bytesToRead = length;
+            if (bytesRemaining != C.LENGTH_UNSET) {
+                bytesToRead = (int) Math.min(bytesRemaining, length);
+            }
+
+            int read = inputStream != null ? inputStream.read(buffer, offset, bytesToRead) : -1;
+            if (read == -1) {
+                return C.RESULT_END_OF_INPUT;
+            }
+
+            if (bytesRemaining != C.LENGTH_UNSET) {
+                bytesRemaining -= read;
+            }
+            bytesTransferred(read);
+            return read;
+        }
+
+        @Nullable
+        @Override
+        public Uri getUri() {
+            return usingFallback ? fallbackDataSource.getUri() : uri;
+        }
+
+        @NonNull
+        @Override
+        public Map<String, List<String>> getResponseHeaders() {
+            return usingFallback ? fallbackDataSource.getResponseHeaders() : super.getResponseHeaders();
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (usingFallback) {
+                fallbackDataSource.close();
+                usingFallback = false;
+            }
+            cleanup();
+        }
+
+        private void cleanup() {
+            uri = null;
+            if (isOpened) {
+                isOpened = false;
+                try {
+                    if (inputStream != null) inputStream.close();
+                } catch (Exception ignored) {}
+                try {
+                    if (afd != null) afd.close();
+                } catch (Exception ignored) {}
+                inputStream = null;
+                fileChannel = null;
+                afd = null;
+                transferEnded();
             }
         }
     }

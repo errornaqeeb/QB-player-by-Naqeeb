@@ -105,6 +105,7 @@ const MediaBrowser = (function() {
    */
   function loadFolders() {
     showFoldersView();
+    if (!foldersViewEl) foldersViewEl = document.getElementById('browser-folders-list');
     if (!foldersViewEl) return;
 
     if (window.AndroidBridge && window.AndroidBridge.getMediaFolders) {

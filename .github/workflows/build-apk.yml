@@ -53,7 +53,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: v1.9.2
-          name: "QB Player v1.9.2 by Naqeeb (MKV Seeking via Direct Cues Pointer & Media3 1.5.1)"
+          name: "QB Player v1.9.2 by Naqeeb (MKV Seeking via Direct Cues Pointer & Safe FD Stream)"
           body: |
             ## 🎬 QB Player by Naqeeb v1.9.2 (Ad-Free Android APK)
 
@@ -64,8 +64,6 @@ jobs:
               - ExoPlayer immediately parses the Cues seek table, sets `isSeekable = true`, and enables smooth seeking without resetting to `00:00`.
             - **Fixed Local HTTP Server Stream Descriptor**:
               - Resolved premature file descriptor closing, ensuring reliable byte-range streaming for all video formats.
-            - **Upgraded to AndroidX Media3 1.5.1**:
-              - Latest Media3 engine with enhanced Matroska extractor and HEVC 10-bit playback.
             - **Retained All MX Player Features**:
               - Folder browsing, video lists, dual-audio track switching, embedded subtitles, center tap play/pause, gesture controls, zero ads.
 

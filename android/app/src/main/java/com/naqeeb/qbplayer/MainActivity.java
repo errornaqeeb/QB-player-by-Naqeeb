@@ -77,6 +77,9 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -839,6 +842,15 @@ public class MainActivity extends AppCompatActivity {
                         }
                         mediaUri = Uri.parse("http://127.0.0.1:" + serverPort + "/video/stream" + ext + "?id=" + mediaId);
                         Log.d(TAG, "Using HTTP server URI for seekable playback: " + mediaUri);
+                    } else if (filePath != null && new File(filePath).exists()) {
+                        String ext = "";
+                        if (filePath.contains(".")) {
+                            ext = filePath.substring(filePath.lastIndexOf('.'));
+                        }
+                        try {
+                            mediaUri = Uri.parse("http://127.0.0.1:" + serverPort + "/video/stream" + ext + "?path=" + java.net.URLEncoder.encode(filePath, "UTF-8"));
+                            Log.d(TAG, "Using HTTP server URI with path for seekable playback: " + mediaUri);
+                        } catch (Exception ignored) {}
                     }
 
                     if (fallbackDuration <= 0) {
@@ -1580,6 +1592,7 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     long mediaId = -1;
+                    String filePathParam = null;
                     int idIndex = path.indexOf("id=");
                     if (idIndex != -1) {
                         String idStr = path.substring(idIndex + 3);
@@ -1589,8 +1602,17 @@ public class MainActivity extends AppCompatActivity {
                             mediaId = Long.parseLong(idStr);
                         } catch (Exception ignored) {}
                     }
+                    int pathIndex = path.indexOf("path=");
+                    if (pathIndex != -1) {
+                        String pStr = path.substring(pathIndex + 5);
+                        int ampIndex = pStr.indexOf('&');
+                        if (ampIndex != -1) pStr = pStr.substring(0, ampIndex);
+                        try {
+                            filePathParam = URLDecoder.decode(pStr, "UTF-8");
+                        } catch (Exception ignored) {}
+                    }
 
-                    if (mediaId == -1) {
+                    if (mediaId == -1 && (filePathParam == null || filePathParam.isEmpty())) {
                         OutputStream out = socket.getOutputStream();
                         out.write("HTTP/1.1 400 Bad Request\r\nAccess-Control-Allow-Origin: *\r\n\r\n".getBytes());
                         out.flush();
@@ -1598,8 +1620,46 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    Uri contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
-                    pfd = getContentResolver().openFileDescriptor(contentUri, "r");
+                    Uri contentUri = null;
+                    String mimeType = null;
+                    String dataPath = null;
+                    long mediaStoreSize = -1;
+
+                    if (mediaId != -1) {
+                        contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId);
+                        pfd = getContentResolver().openFileDescriptor(contentUri, "r");
+                        mimeType = getContentResolver().getType(contentUri);
+                        try (Cursor c = getContentResolver().query(contentUri, new String[]{
+                                MediaStore.Video.Media.DATA,
+                                MediaStore.Video.Media.DISPLAY_NAME,
+                                MediaStore.Video.Media.MIME_TYPE,
+                                MediaStore.Video.Media.SIZE
+                        }, null, null, null)) {
+                            if (c != null && c.moveToFirst()) {
+                                int dataCol = c.getColumnIndex(MediaStore.Video.Media.DATA);
+                                int nameCol = c.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME);
+                                int mimeCol = c.getColumnIndex(MediaStore.Video.Media.MIME_TYPE);
+                                int sizeCol = c.getColumnIndex(MediaStore.Video.Media.SIZE);
+
+                                if (dataCol != -1) dataPath = c.getString(dataCol);
+                                if (dataPath == null && nameCol != -1) dataPath = c.getString(nameCol);
+                                if (mimeCol != -1 && (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType))) {
+                                    mimeType = c.getString(mimeCol);
+                                }
+                                if (sizeCol != -1) {
+                                    mediaStoreSize = c.getLong(sizeCol);
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    } else if (filePathParam != null) {
+                        File localFile = new File(filePathParam);
+                        if (localFile.exists() && localFile.canRead()) {
+                            pfd = ParcelFileDescriptor.open(localFile, ParcelFileDescriptor.MODE_READ_ONLY);
+                            dataPath = filePathParam;
+                            mediaStoreSize = localFile.length();
+                        }
+                    }
+
                     if (pfd == null) {
                         OutputStream out = socket.getOutputStream();
                         out.write("HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\n\r\n".getBytes());
@@ -1608,32 +1668,6 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    String mimeType = getContentResolver().getType(contentUri);
-                    String dataPath = null;
-                    long mediaStoreSize = -1;
-                    try (Cursor c = getContentResolver().query(contentUri, new String[]{
-                            MediaStore.Video.Media.DATA,
-                            MediaStore.Video.Media.DISPLAY_NAME,
-                            MediaStore.Video.Media.MIME_TYPE,
-                            MediaStore.Video.Media.SIZE
-                    }, null, null, null)) {
-                        if (c != null && c.moveToFirst()) {
-                            int dataCol = c.getColumnIndex(MediaStore.Video.Media.DATA);
-                            int nameCol = c.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME);
-                            int mimeCol = c.getColumnIndex(MediaStore.Video.Media.MIME_TYPE);
-                            int sizeCol = c.getColumnIndex(MediaStore.Video.Media.SIZE);
-
-                            if (dataCol != -1) dataPath = c.getString(dataCol);
-                            if (dataPath == null && nameCol != -1) dataPath = c.getString(nameCol);
-                            if (mimeCol != -1 && (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType))) {
-                                mimeType = c.getString(mimeCol);
-                            }
-                            if (sizeCol != -1) {
-                                mediaStoreSize = c.getLong(sizeCol);
-                            }
-                        }
-                    } catch (Exception ignored) {}
-
                     if (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType)) {
                         mimeType = getMimeTypeFromPath(dataPath);
                     }
@@ -1641,14 +1675,13 @@ public class MainActivity extends AppCompatActivity {
                         mimeType = "video/mp4";
                     }
 
-                    long fileLength = pfd.getStatSize();
+                    FileInputStream fis = new FileInputStream(pfd.getFileDescriptor());
+                    FileChannel channel = fis.getChannel();
+                    long fileLength = (mediaStoreSize > 0) ? mediaStoreSize : pfd.getStatSize();
                     if (fileLength <= 0) {
-                        try (FileInputStream testFis = new FileInputStream(pfd.getFileDescriptor())) {
-                            fileLength = testFis.getChannel().size();
+                        try {
+                            fileLength = channel.size();
                         } catch (Exception ignored) {}
-                    }
-                    if (fileLength <= 0 && mediaStoreSize > 0) {
-                        fileLength = mediaStoreSize;
                     }
 
                     long start = 0;
@@ -1689,6 +1722,7 @@ public class MainActivity extends AppCompatActivity {
                         String response = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + fileLength + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
                         out.write(response.getBytes());
                         out.flush();
+                        fis.close();
                         pfd.close();
                         socket.close();
                         return;
@@ -1719,21 +1753,33 @@ public class MainActivity extends AppCompatActivity {
 
                     if ("HEAD".equalsIgnoreCase(method)) {
                         out.flush();
+                        fis.close();
                         pfd.close();
                         socket.close();
                         return;
                     }
 
-                    try (FileInputStream fis = new FileInputStream(pfd.getFileDescriptor())) {
+                    try {
                         if (start > 0) {
-                            fis.getChannel().position(start);
+                            channel.position(start);
                         }
 
                         byte[] buffer = new byte[128 * 1024];
-                        long bytesRemaining = contentLength;
+                        long bytesRemaining = contentLength > 0 ? contentLength : Long.MAX_VALUE;
+
+                        if (start == 0 && (mimeType.contains("matroska") || mimeType.contains("webm") || (dataPath != null && (dataPath.endsWith(".mkv") || dataPath.endsWith(".webm"))))) {
+                            int toRead = (int) Math.min((long) buffer.length, bytesRemaining);
+                            int read = fis.read(buffer, 0, toRead);
+                            if (read > 0) {
+                                patchMatroskaHeader(channel, buffer, read, fileLength);
+                                out.write(buffer, 0, read);
+                                bytesRemaining -= read;
+                                channel.position(read);
+                            }
+                        }
 
                         while (bytesRemaining > 0) {
-                            int toRead = (int) Math.min(buffer.length, bytesRemaining);
+                            int toRead = (int) Math.min((long) buffer.length, bytesRemaining);
                             int read = fis.read(buffer, 0, toRead);
                             if (read == -1) break;
                             out.write(buffer, 0, read);
@@ -1741,10 +1787,17 @@ public class MainActivity extends AppCompatActivity {
                         }
 
                         out.flush();
+                    } finally {
+                        try {
+                            fis.close();
+                        } catch (Exception ignored) {}
+                        try {
+                            pfd.close();
+                        } catch (Exception ignored) {}
+                        try {
+                            socket.close();
+                        } catch (Exception ignored) {}
                     }
-
-                    pfd.close();
-                    socket.close();
                 } catch (Exception ignored) {
                     try {
                         if (pfd != null) pfd.close();
@@ -1752,6 +1805,189 @@ public class MainActivity extends AppCompatActivity {
                     } catch (Exception ignored2) {}
                 }
             }).start();
+        }
+
+        private static void patchMatroskaHeader(FileChannel channel, byte[] buffer, int length, long fileLength) {
+            try {
+                if (length < 100 || buffer == null) return;
+                // EBML Header check: 0x1A 0x45 0xDF 0xA3
+                if (buffer[0] != (byte) 0x1A || buffer[1] != (byte) 0x45 || buffer[2] != (byte) 0xDF || buffer[3] != (byte) 0xA3) {
+                    return;
+                }
+
+                // Find Segment element: 0x18 0x53 0x80 0x67
+                int segIdx = -1;
+                for (int i = 4; i < Math.min(length - 8, 1024); i++) {
+                    if (buffer[i] == (byte) 0x18 && buffer[i+1] == (byte) 0x53 && buffer[i+2] == (byte) 0x80 && buffer[i+3] == (byte) 0x67) {
+                        segIdx = i;
+                        break;
+                    }
+                }
+                if (segIdx == -1) return;
+
+                // Parse Segment VINT size
+                int vintRes = getVintLength(buffer[segIdx + 4]);
+                if (vintRes <= 0) return;
+                int segPayloadStart = segIdx + 4 + vintRes;
+
+                // Find Primary SeekHead: 0x11 0x4D 0x9B 0x74
+                int shIdx = -1;
+                for (int i = segPayloadStart; i < Math.min(length - 8, segPayloadStart + 512); i++) {
+                    if (buffer[i] == (byte) 0x11 && buffer[i+1] == (byte) 0x4D && buffer[i+2] == (byte) 0x9B && buffer[i+3] == (byte) 0x74) {
+                        shIdx = i;
+                        break;
+                    }
+                }
+                if (shIdx == -1) return;
+
+                int shVint = getVintLength(buffer[shIdx + 4]);
+                if (shVint <= 0) return;
+                long shLen = parseVintVal(buffer, shIdx + 4, shVint);
+                int shPayloadStart = shIdx + 4 + shVint;
+                int shEnd = (int) Math.min(length, shPayloadStart + shLen);
+
+                // Check if primary SeekHead already points to Cues (0x53AB + 0x84 + 0x1C53BB6B)
+                byte[] cuesIdPattern = new byte[]{(byte) 0x53, (byte) 0xAB, (byte) 0x84, (byte) 0x1C, (byte) 0x53, (byte) 0xBB, (byte) 0x6B};
+                if (indexOfSubarray(buffer, shPayloadStart, shEnd, cuesIdPattern) != -1) {
+                    Log.d("LocalVideoServer", "Primary SeekHead already points directly to Cues.");
+                    return;
+                }
+
+                // Look for secondary SeekHead pointer: 0x53AB + 0x84 + 0x114D9B74
+                byte[] secSeekHeadPattern = new byte[]{(byte) 0x53, (byte) 0xAB, (byte) 0x84, (byte) 0x11, (byte) 0x4D, (byte) 0x9B, (byte) 0x74};
+                int secShPtrIdx = indexOfSubarray(buffer, shPayloadStart, shEnd, secSeekHeadPattern);
+                if (secShPtrIdx != -1) {
+                    int posIdIdx = secShPtrIdx + secSeekHeadPattern.length;
+                    if (posIdIdx + 3 < length && buffer[posIdIdx] == (byte) 0x53 && buffer[posIdIdx + 1] == (byte) 0xAC) {
+                        int posVint = getVintLength(buffer[posIdIdx + 2]);
+                        if (posVint > 0) {
+                            int valOffset = posIdIdx + 2 + posVint;
+                            long posLen = parseVintVal(buffer, posIdIdx + 2, posVint);
+                            if (posLen > 0 && posLen <= 8 && valOffset + posLen <= length) {
+                                long secShPos = 0;
+                                for (int i = 0; i < posLen; i++) {
+                                    secShPos = (secShPos << 8) | (buffer[valOffset + i] & 0xFFL);
+                                }
+                                long secShFileOffset = segPayloadStart + secShPos;
+                                Log.d("LocalVideoServer", "Found secondary SeekHead pointer at offset: " + secShFileOffset);
+
+                                // Read secondary SeekHead from channel
+                                ByteBuffer secBuf = ByteBuffer.allocate(8192);
+                                channel.position(secShFileOffset);
+                                int secRead = channel.read(secBuf);
+                                if (secRead > 0) {
+                                    byte[] secBytes = secBuf.array();
+                                    int cuesEntryIdx = indexOfSubarray(secBytes, 0, secRead, cuesIdPattern);
+                                    if (cuesEntryIdx != -1) {
+                                        int cPosIdIdx = cuesEntryIdx + cuesIdPattern.length;
+                                        if (cPosIdIdx + 3 < secRead && secBytes[cPosIdIdx] == (byte) 0x53 && secBytes[cPosIdIdx + 1] == (byte) 0xAC) {
+                                            int cPosVint = getVintLength(secBytes[cPosIdIdx + 2]);
+                                            if (cPosVint > 0) {
+                                                int cValOffset = cPosIdIdx + 2 + cPosVint;
+                                                long cPosLen = parseVintVal(secBytes, cPosIdIdx + 2, cPosVint);
+                                                long cuesPos = 0;
+                                                for (int i = 0; i < cPosLen; i++) {
+                                                    cuesPos = (cuesPos << 8) | (secBytes[cValOffset + i] & 0xFFL);
+                                                }
+
+                                                // Verify Cues at that position
+                                                ByteBuffer verifyBuf = ByteBuffer.allocate(4);
+                                                channel.position(segPayloadStart + cuesPos);
+                                                int vRead = channel.read(verifyBuf);
+                                                if (vRead == 4 && verifyBuf.get(0) == (byte) 0x1C && verifyBuf.get(1) == (byte) 0x53 && verifyBuf.get(2) == (byte) 0xBB && verifyBuf.get(3) == (byte) 0x6B) {
+                                                    Log.i("LocalVideoServer", "Verified Cues at segOffset " + cuesPos + " (file " + (segPayloadStart + cuesPos) + ")! Patching primary SeekHead to point directly to Cues.");
+                                                    // Patch primary SeekHead: Replace secondary SeekHead pattern with Cues pattern
+                                                    System.arraycopy(cuesIdPattern, 0, buffer, secShPtrIdx, cuesIdPattern.length);
+                                                    // Patch position
+                                                    for (int i = 0; i < posLen; i++) {
+                                                        buffer[valOffset + (int) posLen - 1 - i] = (byte) ((cuesPos >> (8 * i)) & 0xFF);
+                                                    }
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: Scan the last 2MB of file for Cues (0x1C 0x53 0xBB 0x6B)
+                if (fileLength > 1024) {
+                    long scanStart = Math.max(0, fileLength - 2 * 1024 * 1024);
+                    int scanLen = (int) (fileLength - scanStart);
+                    ByteBuffer tailBuf = ByteBuffer.allocate(Math.min(scanLen, 2 * 1024 * 1024));
+                    channel.position(scanStart);
+                    int tailRead = channel.read(tailBuf);
+                    if (tailRead > 4) {
+                        byte[] tailBytes = tailBuf.array();
+                        byte[] cuesMagic = new byte[]{(byte) 0x1C, (byte) 0x53, (byte) 0xBB, (byte) 0x6B};
+                        for (int i = tailRead - 4; i >= 0; i--) {
+                            if (tailBytes[i] == cuesMagic[0] && tailBytes[i+1] == cuesMagic[1] && tailBytes[i+2] == cuesMagic[2] && tailBytes[i+3] == cuesMagic[3]) {
+                                long cuesFileOffset = scanStart + i;
+                                long cuesSegOffset = cuesFileOffset - segPayloadStart;
+                                Log.i("LocalVideoServer", "Found Cues via tail scan at file offset " + cuesFileOffset + " (segOffset " + cuesSegOffset + ")");
+                                if (secShPtrIdx != -1) {
+                                    int posIdIdx = secShPtrIdx + secSeekHeadPattern.length;
+                                    if (posIdIdx + 3 < length && buffer[posIdIdx] == (byte) 0x53 && buffer[posIdIdx + 1] == (byte) 0xAC) {
+                                        int posVint = getVintLength(buffer[posIdIdx + 2]);
+                                        if (posVint > 0) {
+                                            int valOffset = posIdIdx + 2 + posVint;
+                                            long posLen = parseVintVal(buffer, posIdIdx + 2, posVint);
+                                            System.arraycopy(cuesIdPattern, 0, buffer, secShPtrIdx, cuesIdPattern.length);
+                                            for (int j = 0; j < posLen; j++) {
+                                                buffer[valOffset + (int) posLen - 1 - j] = (byte) ((cuesSegOffset >> (8 * j)) & 0xFF);
+                                            }
+                                            Log.i("LocalVideoServer", "Patched primary SeekHead to tail Cues!");
+                                            return;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.w("LocalVideoServer", "Could not patch Matroska header", e);
+            }
+        }
+
+        private static int getVintLength(byte b) {
+            int mask = 0x80;
+            int length = 1;
+            while (mask > 0 && (b & mask) == 0) {
+                mask >>= 1;
+                length++;
+            }
+            return (length <= 8) ? length : 0;
+        }
+
+        private static long parseVintVal(byte[] buf, int offset, int length) {
+            if (length <= 0 || length > 8) return 0;
+            int mask = (1 << (8 - length)) - 1;
+            long val = buf[offset] & mask;
+            for (int i = 1; i < length; i++) {
+                val = (val << 8) | (buf[offset + i] & 0xFFL);
+            }
+            return val;
+        }
+
+        private static int indexOfSubarray(byte[] src, int start, int end, byte[] target) {
+            if (src == null || target == null || target.length == 0 || end > src.length) return -1;
+            int max = end - target.length;
+            for (int i = start; i <= max; i++) {
+                boolean match = true;
+                for (int j = 0; j < target.length; j++) {
+                    if (src[i + j] != target[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return i;
+            }
+            return -1;
         }
     }
 }

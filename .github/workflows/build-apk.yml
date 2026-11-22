@@ -39,41 +39,40 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.9.1-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.9.2-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.9.1-Naqeeb.apk
+          path: build-output/QB-Player-v1.9.2-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.9.1
-          name: "QB Player v1.9.1 by Naqeeb (MKV Seeking via Local HTTP Server with Range Support)"
+          tag_name: v1.9.2
+          name: "QB Player v1.9.2 by Naqeeb (MKV Seeking via Direct Cues Pointer & Media3 1.5.1)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.9.1 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.9.2 (Ad-Free Android APK)
 
-            ### 🚀 Fixed MKV Seeking (Double-Tap 10s & Timeline Scrubber):
-            - **100% Fixed MKV / WebM Seeking from Snapping to Beginning (0:00)**:
-              - Exoplayer streams via local high-performance HTTP server (`127.0.0.1:8998`) with full HTTP Range request (`Accept-Ranges: bytes`, `206 Partial Content`) and exact `Content-Length` headers.
-              - MatroskaExtractor can now seek to the end of MKV files to read Cues/Index tables, enabling accurate seeking on all MKV video files.
-              - Suffix byte ranges and Scoped Storage file size fallbacks fully handled.
-            - **Retained All Core MX Player Features**:
-              - Instant folder browsing & video playback.
-              - Multi-audio & dual-audio switching (Hindi, English, etc.).
-              - Embedded & external subtitle support.
-              - Center tap play/pause, edge tap controls toggle.
-              - Volume & brightness swipe gestures.
-              - 100% ad-free experience.
+            ### 🚀 Complete Fix for MKV Seeking (Double-Tap 10s & Timeline Scrubber):
+            - **100% Fixed MKV Seeking for All Mkvmerge / Secondary SeekHead Files**:
+              - MatroskaExtractor in ExoPlayer only parses the primary SeekHead and ignores recursive/secondary SeekHeads where `mkvmerge` places Cues pointers.
+              - In v1.9.2, QB Player dynamically inspects the Matroska header on-the-fly and patches the primary SeekHead to point directly to the Cues index block.
+              - ExoPlayer immediately parses the Cues seek table, sets `isSeekable = true`, and enables smooth seeking without resetting to `00:00`.
+            - **Fixed Local HTTP Server Stream Descriptor**:
+              - Resolved premature file descriptor closing, ensuring reliable byte-range streaming for all video formats.
+            - **Upgraded to AndroidX Media3 1.5.1**:
+              - Latest Media3 engine with enhanced Matroska extractor and HEVC 10-bit playback.
+            - **Retained All MX Player Features**:
+              - Folder browsing, video lists, dual-audio track switching, embedded subtitles, center tap play/pause, gesture controls, zero ads.
 
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.9.1-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
+            1. Download `QB-Player-v1.9.2-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
             2. Open the APK file to update / install.
-            3. Enjoy full ad-free video watching!
-          files: build-output/QB-Player-v1.9.1-Naqeeb.apk
+            3. Enjoy full ad-free video watching with smooth MKV seeking!
+          files: build-output/QB-Player-v1.9.2-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

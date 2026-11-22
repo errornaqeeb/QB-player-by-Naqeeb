@@ -17,6 +17,7 @@ const PlayerCore = (function() {
   let volumeLevel = 1.0; // 0.0 to 2.0 (up to 200% volume boost)
   let currentFileKey = null;
   let currentVideoFile = null;
+  let currentTitle = '';
   let currentMediaId = null;
   let activeEmbeddedTrackId = 0;
   let nativeTimeTimer = null;
@@ -140,6 +141,7 @@ const PlayerCore = (function() {
    */
   function loadSource(fileOrUrl, title = '') {
     currentVideoFile = fileOrUrl;
+    currentTitle = title;
     currentFileKey = StorageManager.generateFileKey(fileOrUrl);
 
     let videoTitle = title;
@@ -495,6 +497,10 @@ const PlayerCore = (function() {
     return currentFileKey;
   }
 
+  function getCurrentTitle() {
+    return currentTitle;
+  }
+
   function getCurrentVideoFile() {
     return currentVideoFile;
   }
@@ -530,6 +536,7 @@ const PlayerCore = (function() {
     setExternalAudioOffset,
     formatTime,
     getCurrentFileKey,
+    getCurrentTitle,
     getCurrentVideoFile,
     startNativeTimeUpdates,
     stopNativeTimeUpdates,

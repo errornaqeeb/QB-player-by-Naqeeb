@@ -302,7 +302,7 @@ const MediaBrowser = (function() {
   /**
    * Play video immediately in full-screen player
    */
-  function playSelectedVideo(video) {
+  function playSelectedVideo(video, updatePlaylistQueue = true) {
     // Hide media browser
     if (browserEl) browserEl.classList.add('hidden');
     document.documentElement.classList.add('native-exoplayer');
@@ -312,6 +312,16 @@ const MediaBrowser = (function() {
     if (window.AndroidBridge && video.width && video.height) {
       if (video.width >= video.height) {
         window.AndroidBridge.setOrientation('landscape');
+      }
+    }
+
+    // Populate PlaylistManager with current folder/tab videos so Next & Prev work!
+    if (updatePlaylistQueue) {
+      const list = (currentFolderVideos && currentFolderVideos.length > 0) ? currentFolderVideos : allVideos;
+      if (list && list.length > 0 && window.PlaylistManager && window.PlaylistManager.setQueue) {
+        let idx = list.findIndex(v => (v.id && video.id && String(v.id) === String(video.id)) || (v.path && video.path && v.path === video.path) || v.title === video.title);
+        if (idx === -1) idx = 0;
+        window.PlaylistManager.setQueue(list, idx);
       }
     }
 
@@ -336,6 +346,10 @@ const MediaBrowser = (function() {
     if (titleEl) titleEl.textContent = video.title;
     const metaEl = document.getElementById('topbar-video-meta');
     if (metaEl) metaEl.textContent = `${video.resolution || 'HD'} • Ad-Free`;
+  }
+
+  function playVideoItem(item, updateQueue = false) {
+    playSelectedVideo(item, updateQueue);
   }
 
   /**
@@ -428,6 +442,7 @@ const MediaBrowser = (function() {
     loadFolders,
     openFolder,
     playSelectedVideo,
+    playVideoItem,
     returnToBrowser,
     handleBack
   };

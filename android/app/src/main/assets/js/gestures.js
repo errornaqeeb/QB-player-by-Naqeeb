@@ -85,16 +85,17 @@ const GesturesManager = (function() {
 
     const relX = (startX - rect.left) / rect.width;
 
-    // Record baseline values for gestures
-    if (relX < 0.4) {
+    // Record baseline values for gestures (Left half = Brightness, Right half = Volume)
+    if (relX < 0.5) {
+      if (window.AndroidBridge && window.AndroidBridge.getBrightness) {
+        try {
+          const b = window.AndroidBridge.getBrightness();
+          if (typeof b === 'number' && b > 0) brightness = b;
+        } catch (e) {}
+      }
       initialValue = brightness;
-    } else if (relX > 0.6) {
-      initialValue = PlayerCore.getVolume();
     } else {
-      const vid = document.getElementById('video-element');
-      initialValue = (window.PlayerCore && typeof PlayerCore.getCurrentTime === 'function')
-        ? PlayerCore.getCurrentTime()
-        : (vid ? vid.currentTime : 0);
+      initialValue = PlayerCore.getVolume();
     }
   }
 
@@ -117,9 +118,13 @@ const GesturesManager = (function() {
 
         if (absX > absY * 1.2) {
           gestureType = 'seek';
-        } else if (relX < 0.45) {
+          const vid = document.getElementById('video-element');
+          initialValue = (window.PlayerCore && typeof PlayerCore.getCurrentTime === 'function')
+            ? PlayerCore.getCurrentTime()
+            : (vid ? vid.currentTime : 0);
+        } else if (relX < 0.5) {
           gestureType = 'brightness';
-        } else if (relX > 0.55) {
+        } else {
           gestureType = 'volume';
         }
       }
@@ -174,7 +179,13 @@ const GesturesManager = (function() {
       if (gestureType === 'seek') {
         PlayerCore.seek(pendingSeekTarget);
       }
-      hideAllOSD();
+      if (osdBrightnessEl && osdBrightnessEl.classList.contains('active')) {
+        scheduleOSDHide(osdBrightnessEl);
+      }
+      if (osdVolumeEl && osdVolumeEl.classList.contains('active')) {
+        scheduleOSDHide(osdVolumeEl);
+      }
+      if (osdSeekEl) osdSeekEl.classList.remove('active');
       isDragging = false;
       gestureType = null;
       startX = 0;
@@ -289,7 +300,12 @@ const GesturesManager = (function() {
    * Brightness Control
    */
   function setBrightness(level) {
-    brightness = Math.max(0.1, Math.min(1.0, level));
+    brightness = Math.max(0.01, Math.min(1.0, level));
+    if (window.AndroidBridge && window.AndroidBridge.setBrightness) {
+      try {
+        window.AndroidBridge.setBrightness(brightness);
+      } catch (e) {}
+    }
     if (brightnessOverlayEl) {
       // 1.0 brightness = 0 opacity; 0.1 brightness = 0.85 opacity black
       brightnessOverlayEl.style.opacity = (1 - brightness) * 0.88;

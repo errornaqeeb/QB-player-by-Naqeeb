@@ -10,7 +10,7 @@ const StorageManager = (function() {
 
   // Default User Settings
   const defaultSettings = {
-    volume: 1.0,
+    volume: 0.2, // Default to 20% on fresh app launch
     audioBoost: 1.0, // 1.0 = 100%, 2.0 = 200%
     brightness: 1.0,
     playbackSpeed: 1.0,
@@ -39,18 +39,52 @@ const StorageManager = (function() {
 
   /**
    * Save playback position and metadata for a video
+   * Accepts both (fileKey, metadataObj) and (fileKey, currentTime, duration, title)
    */
-  function savePlaybackPosition(fileKey, metadata) {
+  function savePlaybackPosition(fileKey, metadataOrCurrentTime, duration, title) {
     if (!fileKey) return;
     try {
+      let currentTime = 0;
+      let dur = 0;
+      let vidTitle = 'Untitled Video';
+
+      if (typeof metadataOrCurrentTime === 'object' && metadataOrCurrentTime !== null) {
+        currentTime = metadataOrCurrentTime.currentTime || metadataOrCurrentTime.timestamp || 0;
+        dur = metadataOrCurrentTime.duration || 0;
+        vidTitle = metadataOrCurrentTime.title || 'Untitled Video';
+      } else if (typeof metadataOrCurrentTime === 'number') {
+        currentTime = metadataOrCurrentTime;
+        dur = duration || 0;
+        vidTitle = title || 'Untitled Video';
+      }
+
+      if (currentTime <= 0) return;
+
       const payload = {
-        title: metadata.title || 'Untitled Video',
-        timestamp: metadata.currentTime || 0,
-        duration: metadata.duration || 0,
+        title: vidTitle,
+        timestamp: currentTime,
+        duration: dur,
         updatedAt: Date.now(),
-        completed: metadata.duration ? (metadata.currentTime / metadata.duration > 0.95) : false
+        completed: dur > 0 ? (currentTime / dur > 0.95) : false
       };
+
+      // Save under primary key
       localStorage.setItem(`${STORAGE_PREFIX}pos_${fileKey}`, JSON.stringify(payload));
+
+      // Also save under clean title key for robust cross-view lookup
+      if (vidTitle && vidTitle !== 'Untitled Video') {
+        const cleanTitleKey = encodeURIComponent(vidTitle.trim().toLowerCase());
+        localStorage.setItem(`${STORAGE_PREFIX}pos_${cleanTitleKey}`, JSON.stringify(payload));
+      }
+
+      // Also persist to native Android SharedPreferences as robust backup
+      if (window.AndroidBridge && window.AndroidBridge.savePosition) {
+        window.AndroidBridge.savePosition(fileKey, Math.round(currentTime * 1000));
+        if (vidTitle && vidTitle !== 'Untitled Video') {
+          window.AndroidBridge.savePosition(vidTitle, Math.round(currentTime * 1000));
+        }
+      }
+
       updateRecentHistory(fileKey, payload);
     } catch (e) {
       console.warn('[Storage] Failed to save playback position:', e);
@@ -60,12 +94,32 @@ const StorageManager = (function() {
   /**
    * Get saved playback position
    */
-  function getPlaybackPosition(fileKey) {
-    if (!fileKey) return null;
+  function getPlaybackPosition(fileKey, title) {
+    if (!fileKey && !title) return null;
     try {
-      const data = localStorage.getItem(`${STORAGE_PREFIX}pos_${fileKey}`);
-      if (!data) return null;
-      return JSON.parse(data);
+      if (fileKey) {
+        const data = localStorage.getItem(`${STORAGE_PREFIX}pos_${fileKey}`);
+        if (data) return JSON.parse(data);
+      }
+      if (title) {
+        const cleanTitleKey = encodeURIComponent(title.trim().toLowerCase());
+        const data = localStorage.getItem(`${STORAGE_PREFIX}pos_${cleanTitleKey}`);
+        if (data) return JSON.parse(data);
+      }
+      // Native Android SharedPreferences fallback
+      if (window.AndroidBridge && window.AndroidBridge.getSavedPosition) {
+        const posMs = window.AndroidBridge.getSavedPosition(fileKey || title);
+        if (posMs > 5000) {
+          return {
+            title: title || 'Video',
+            timestamp: posMs / 1000.0,
+            duration: 0,
+            updatedAt: Date.now(),
+            completed: false
+          };
+        }
+      }
+      return null;
     } catch (e) {
       return null;
     }

@@ -124,6 +124,29 @@ const PlaylistManager = (function() {
   }
 
   /**
+   * Set entire folder or video list into queue with active index
+   */
+  function setQueue(items, activeIndex = 0) {
+    if (!items || items.length === 0) return;
+    queue = items.map(item => ({
+      id: item.id,
+      title: item.title,
+      source: item.url || item.path || String(item.id),
+      path: item.path,
+      url: item.url,
+      width: item.width,
+      height: item.height,
+      resolution: item.resolution,
+      sizeStr: item.sizeStr,
+      durationStr: item.durationStr,
+      type: (item.source instanceof File) ? 'file' : 'url',
+      fileKey: StorageManager.generateFileKey(item.path || item.title || item.id)
+    }));
+    currentIndex = Math.max(0, Math.min(queue.length - 1, activeIndex));
+    render();
+  }
+
+  /**
    * Play video at specific playlist index
    */
   function playIndex(index) {
@@ -135,12 +158,17 @@ const PlaylistManager = (function() {
     const welcome = document.getElementById('welcome-screen');
     if (welcome) welcome.classList.add('hidden');
 
-    // Load in PlayerCore
-    PlayerCore.loadSource(item.source, item.title);
-
-    // Update Topbar Title
-    const titleEl = document.getElementById('topbar-video-title');
-    if (titleEl) titleEl.textContent = item.title;
+    if (window.MediaBrowser && window.MediaBrowser.playVideoItem) {
+      window.MediaBrowser.playVideoItem(item, false);
+    } else {
+      if (item.id) {
+        PlayerCore.setCurrentMediaId(item.id);
+      }
+      PlayerCore.loadSource(item.source || item.path, item.title);
+      PlayerCore.play();
+      const titleEl = document.getElementById('topbar-video-title');
+      if (titleEl) titleEl.textContent = item.title;
+    }
 
     render();
 
@@ -165,17 +193,11 @@ const PlaylistManager = (function() {
 
   function playPrev() {
     if (queue.length === 0) return;
-    const vid = document.getElementById('video-element');
-    // If more than 3 seconds into the video, restart current video
-    if (vid && vid.currentTime > 3) {
-      PlayerCore.seek(0);
-      return;
-    }
-
     if (currentIndex > 0) {
       playIndex(currentIndex - 1);
-    } else if (loopMode === 'all') {
-      playIndex(queue.length - 1);
+    } else {
+      PlayerCore.seek(0);
+      PlayerCore.play();
     }
   }
 
@@ -270,6 +292,7 @@ const PlaylistManager = (function() {
 
   return {
     init,
+    setQueue,
     addFiles,
     addUrl,
     playIndex,

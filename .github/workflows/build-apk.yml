@@ -39,38 +39,44 @@ jobs:
       - name: Prepare APK Output
         run: |
           mkdir -p build-output
-          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.9.2-Naqeeb.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk build-output/QB-Player-v1.9.3-Naqeeb.apk
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: QB-Player-APK
-          path: build-output/QB-Player-v1.9.2-Naqeeb.apk
+          path: build-output/QB-Player-v1.9.3-Naqeeb.apk
           retention-days: 30
 
       - name: Create or Update Release with APK
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.9.2
-          name: "QB Player v1.9.2 by Naqeeb (MKV Seeking via Direct Cues Pointer & Safe FD Stream)"
+          tag_name: v1.9.3
+          name: "QB Player v1.9.3 by Naqeeb (Play Where Left, Folder Next/Prev, Brightness & Volume Gestures)"
           body: |
-            ## 🎬 QB Player by Naqeeb v1.9.2 (Ad-Free Android APK)
+            ## 🎬 QB Player by Naqeeb v1.9.3 (Ad-Free Android APK)
 
-            ### 🚀 Complete Fix for MKV Seeking (Double-Tap 10s & Timeline Scrubber):
-            - **100% Fixed MKV Seeking for All Mkvmerge / Secondary SeekHead Files**:
-              - MatroskaExtractor in ExoPlayer only parses the primary SeekHead and ignores recursive/secondary SeekHeads where `mkvmerge` places Cues pointers.
-              - In v1.9.2, QB Player dynamically inspects the Matroska header on-the-fly and patches the primary SeekHead to point directly to the Cues index block.
-              - ExoPlayer immediately parses the Cues seek table, sets `isSeekable = true`, and enables smooth seeking without resetting to `00:00`.
-            - **Fixed Local HTTP Server Stream Descriptor**:
-              - Resolved premature file descriptor closing, ensuring reliable byte-range streaming for all video formats.
-            - **Retained All MX Player Features**:
-              - Folder browsing, video lists, dual-audio track switching, embedded subtitles, center tap play/pause, gesture controls, zero ads.
+            ### 🚀 New Features & Enhancements:
+            1. **"Play Where Left" Resume Support**:
+               - Seamlessly saves playback position in dual-layer persistence (LocalStorage + native SharedPreferences).
+               - When opening any partially watched video, automatically resumes where you left off or offers instant "Resume / Start Over".
+            2. **Right Screen Volume Swipe Gesture**:
+               - Swiping vertically on the right half of the screen adjusts volume smoothly with MX Player OSD.
+            3. **Left Screen Brightness Swipe Gesture**:
+               - Swiping vertically on the left half of the screen adjusts real device screen brightness directly with OSD.
+            4. **Folder Next & Previous Buttons**:
+               - Tapping Next or Prev buttons now smoothly navigates through the videos inside the active folder.
+               - Automatically plays next video in folder when current video finishes.
+            5. **Startup Volume Fix**:
+               - Preserves phone's current media volume on app open (or starts at 20% default if fresh/muted), preventing volume from jumping to 100%.
+            6. **Full Multi-Format Support Preserved**:
+               - All MKV, WebM, MP4 timeline slider scrubbing and 10s double-tap skipping working flawlessly.
 
             ### 📲 How to Install:
-            1. Download `QB-Player-v1.9.2-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
+            1. Download `QB-Player-v1.9.3-Naqeeb.apk` below onto your Android mobile or Oppo Pad.
             2. Open the APK file to update / install.
-            3. Enjoy full ad-free video watching with smooth MKV seeking!
-          files: build-output/QB-Player-v1.9.2-Naqeeb.apk
+            3. Enjoy full ad-free video watching!
+          files: build-output/QB-Player-v1.9.3-Naqeeb.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

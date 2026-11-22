@@ -6,6 +6,7 @@ import android.app.PictureInPictureParams;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -22,6 +23,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.Rational;
 import android.view.View;
@@ -1469,11 +1471,36 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public float getBrightness() {
-            WindowManager.LayoutParams lp = getWindow().getAttributes();
-            if (lp.screenBrightness >= 0) {
-                return lp.screenBrightness;
+            try {
+                WindowManager.LayoutParams lp = getWindow().getAttributes();
+                if (lp.screenBrightness >= 0) {
+                    return lp.screenBrightness;
+                }
+                int sysBrightness = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS);
+                return Math.max(0.05f, Math.min(1.0f, sysBrightness / 255.0f));
+            } catch (Exception e) {
+                return 0.5f;
             }
-            return 1.0f;
+        }
+
+        @JavascriptInterface
+        public void savePosition(String key, long positionMs) {
+            if (key == null || key.isEmpty() || positionMs < 0) return;
+            try {
+                SharedPreferences prefs = getSharedPreferences("QBPlayer_Resume", Context.MODE_PRIVATE);
+                prefs.edit().putLong("pos_" + key, positionMs).apply();
+            } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface
+        public long getSavedPosition(String key) {
+            if (key == null || key.isEmpty()) return 0;
+            try {
+                SharedPreferences prefs = getSharedPreferences("QBPlayer_Resume", Context.MODE_PRIVATE);
+                return prefs.getLong("pos_" + key, 0);
+            } catch (Exception ignored) {
+                return 0;
+            }
         }
 
         @JavascriptInterface

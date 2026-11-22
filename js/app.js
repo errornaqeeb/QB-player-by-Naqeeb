@@ -122,13 +122,24 @@ document.addEventListener('DOMContentLoaded', () => {
   PlaylistManager.init(document.getElementById('drawer-playlist-items'));
   MediaBrowser.init();
 
-  // Load Saved Settings
+  // Load Saved Settings & Phone Volume
   const userSettings = StorageManager.loadSettings();
+  let startVol = 0.2; // Default to 20% on fresh open
+  if (window.AndroidBridge && window.AndroidBridge.getVolume) {
+    try {
+      const sysV = window.AndroidBridge.getVolume();
+      if (typeof sysV === 'number' && !isNaN(sysV) && sysV > 0) {
+        startVol = sysV;
+      }
+    } catch (e) {}
+  } else if (userSettings && typeof userSettings.volume === 'number') {
+    startVol = Math.min(1.0, userSettings.volume);
+  }
+  if (volumeSlider) {
+    volumeSlider.value = Math.round(startVol * 100);
+  }
+
   if (userSettings) {
-    if (userSettings.volume) {
-      PlayerCore.setVolume(userSettings.volume * (userSettings.audioBoost || 1.0));
-      volumeSlider.value = userSettings.volume * 100;
-    }
     if (userSettings.subtitleSize) SubtitlesManager.setFontSize(userSettings.subtitleSize);
     if (userSettings.subtitleColor) SubtitlesManager.setColor(userSettings.subtitleColor);
     if (userSettings.subtitleBg) SubtitlesManager.setBackgroundStyle(userSettings.subtitleBg);
@@ -276,8 +287,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePlayPauseButton(isPlaying);
 
     const fileKey = PlayerCore.getCurrentFileKey();
-    if (fileKey && dur > 0) {
-      StorageManager.savePlaybackPosition(fileKey, currentTime, dur);
+    const vidTitle = (PlayerCore.getCurrentTitle && PlayerCore.getCurrentTitle()) || topbarTitle.textContent;
+    if (fileKey && dur > 0 && currentTime > 3) {
+      StorageManager.savePlaybackPosition(fileKey, currentTime, dur, vidTitle);
     }
   });
 
@@ -301,9 +313,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function checkAndPromptResume() {
     const fileKey = PlayerCore.getCurrentFileKey();
-    if (!fileKey) return;
+    const vidTitle = (PlayerCore.getCurrentTitle && PlayerCore.getCurrentTitle()) || topbarTitle.textContent;
+    if (!fileKey && !vidTitle) return;
 
-    const saved = StorageManager.getPlaybackPosition(fileKey);
+    const saved = StorageManager.getPlaybackPosition(fileKey, vidTitle);
     const dur = getVideoDuration();
     // Only prompt if saved time is > 5s and video is not completed
     if (saved && saved.timestamp > 5 && (!saved.completed || (dur > 0 && saved.timestamp < (dur - 15)))) {
@@ -326,11 +339,14 @@ document.addEventListener('DOMContentLoaded', () => {
         dismissResumeToast();
       };
 
-      // Auto-dismiss after 8s
+      // Auto-resume after 2.5s if not restarted
       if (resumeTimer) clearTimeout(resumeTimer);
       resumeTimer = setTimeout(() => {
-        dismissResumeToast();
-      }, 8000);
+        if (resumeToast.classList.contains('active')) {
+          PlayerCore.seek(saved.timestamp);
+          dismissResumeToast();
+        }
+      }, 2500);
     } else {
       PlayerCore.play();
     }
